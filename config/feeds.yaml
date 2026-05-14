@@ -1,0 +1,12 @@
+defaults:
+  recent_n: 5
+  language_hint: zh
+  quality_l3_enabled: true
+
+feeds:
+  # Replace these with real feeds.
+  - name: Example Xiaoyuzhou Show
+    rss_url: https://example.xiaoyuzhou.fm/rss
+    source: xiaoyuzhou
+    language: zh
+    enabled: true
