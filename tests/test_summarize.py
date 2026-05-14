@@ -1,4 +1,3 @@
-import json
 from broadcast2summary.summarize import (
     summarize, Summary, SummarizeStubs, ModelChoice,
 )
