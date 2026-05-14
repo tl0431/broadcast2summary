@@ -29,5 +29,10 @@ venv/
 .remember/logs/
 .remember/tmp/
 
+# User's real subscriptions — local only; commit feeds.yaml.example as the template
+config/feeds.yaml
+!config/feeds.yaml.example
+
 # Generated docs (keep source .md)
 docs/superpowers/specs/*.html
+docs/superpowers/plans/*.html

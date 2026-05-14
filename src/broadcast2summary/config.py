@@ -46,10 +46,31 @@ class AppConfig:
         return None
 
 
+def _load_dotenv(env_path: Path) -> dict[str, str]:
+    if not env_path.exists():
+        return {}
+    out: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            out[key] = val
+    return out
+
+
 def load_config(
     feeds_yaml_path: Path, env: dict[str, str] | None = None
 ) -> AppConfig:
-    env = env if env is not None else dict(os.environ)
+    if env is None:
+        merged = dict(os.environ)
+        # .env (sibling of config/) supplies anything bashrc didn't already export
+        for k, v in _load_dotenv(feeds_yaml_path.parent.parent / ".env").items():
+            merged.setdefault(k, v)
+        env = merged
     raw = yaml.safe_load(feeds_yaml_path.read_text(encoding="utf-8")) or {}
 
     defaults_raw = raw.get("defaults") or {}
