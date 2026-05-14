@@ -16,13 +16,9 @@ from .pipeline import process_episode, PipelineDeps
 from .logging_setup import configure_run_logging, write_summary_header, RunStats
 
 
-def _home() -> Path:
-    return Path(os.environ.get("BROADCAST2SUMMARY_HOME") or Path.cwd())
-
-
 def _feeds_path() -> Path:
     return Path(os.environ.get("BROADCAST2SUMMARY_FEEDS")
-                or _home() / "config" / "feeds.yaml")
+                or Path.cwd() / "config" / "feeds.yaml")
 
 
 def _cheap_from_env(flag: bool) -> bool:
@@ -42,13 +38,11 @@ def _fetch_feed_xml(rss_url: str) -> str:
 
 
 def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int:
-    home = _home()
-    state_dir = home / "state"
-    state = State(state_dir / "processed.db")
-    state.init_schema()
-    log_file = configure_run_logging(log_dir=home / "logs",
-                                     run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     cfg = _load()
+    state = State(cfg.paths.state_dir / "processed.db")
+    state.init_schema()
+    log_file = configure_run_logging(log_dir=cfg.paths.log_dir,
+                                     run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
     feeds = [f for f in cfg.enabled_feeds() if feed_name is None or f.name == feed_name]
     stats = RunStats(feeds_total=len(feeds), started_at=datetime.now().strftime("%H:%M"))
@@ -72,7 +66,7 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
         write_summary_header(log_file, stats)
         return 0
 
-    deps = _build_deps(cfg, state, state_dir, home, cheap=_cheap_from_env(cheap))
+    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
     for f in feeds:
         for ep in pending_by_feed[f.name]:
             try:
@@ -96,10 +90,9 @@ def cmd_fetch_one(url: str) -> int:
 
 
 def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
-    home = _home()
-    state = State(home / "state" / "processed.db")
-    state.init_schema()
     cfg = _load()
+    state = State(cfg.paths.state_dir / "processed.db")
+    state.init_schema()
     feed = cfg.find_feed(feed_name)
     if not feed:
         print(f"unknown feed: {feed_name}", flush=True)
@@ -108,7 +101,7 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     episodes = parse_feed(xml, feed_name=feed.name)
     cutoff = since
     targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
-    deps = _build_deps(cfg, state, home / "state", home, cheap=_cheap_from_env(cheap))
+    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
     for ep in targets:
         process_episode(ep, deps=deps)
     return 0
@@ -118,14 +111,13 @@ def _already_processed(state: State, episodes) -> set[str]:
     return {e.guid for e in episodes if state.is_processed(e.guid)}
 
 
-def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path,
-                *, cheap: bool = False) -> PipelineDeps:
+def _build_deps(cfg: AppConfig, state: State, *, cheap: bool = False) -> PipelineDeps:
     return PipelineDeps(
         state=state,
         transcribe_backend=FasterWhisperBackend(cheap=cheap),
-        archive_root=home / "archive",
-        audio_dir=state_dir / "audio",
-        failed_dir=state_dir / "failed",
+        archive_root=cfg.paths.archive_root,
+        audio_dir=cfg.paths.state_dir / "audio",
+        failed_dir=cfg.paths.state_dir / "failed",
         im_target=cfg.lark_im_target_open_id,
         wiki_root=cfg.lark_wiki_root_token,
         download_fn=download_audio,
@@ -137,8 +129,8 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path,
 
 
 def cmd_list_failed() -> int:
-    home = _home()
-    state = State(home / "state" / "processed.db")
+    cfg = _load()
+    state = State(cfg.paths.state_dir / "processed.db")
     state.init_schema()
     rows = state.list_failed()
     if not rows:
@@ -150,12 +142,10 @@ def cmd_list_failed() -> int:
 
 
 def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
-    home = _home()
-    state_dir = home / "state"
-    state = State(state_dir / "processed.db")
-    state.init_schema()
     cfg = _load()
-    deps = _build_deps(cfg, state, state_dir, home, cheap=_cheap_from_env(cheap))
+    state = State(cfg.paths.state_dir / "processed.db")
+    state.init_schema()
+    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
     rows = state.list_failed() if guid is None else [state.get_failed(guid)] if state.get_failed(guid) else []
     for r in rows:
         feed = cfg.find_feed(r.feed_name)

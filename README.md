@@ -24,11 +24,23 @@ cp config/.env.example .env
 $EDITOR .env
 
 # 3. Subscriptions
-cp config/feeds.yaml config/feeds.yaml  # already templated; edit in place
+cp config/feeds.yaml.example config/feeds.yaml  # already templated; edit in place
 
-# 4. Lark — assumes lark-cli already configured (`lark-cli auth login`).
+# 4. Storage paths (optional)
+#    By default, output is stored in ~/Knowledge/broadcast/{archive,state,logs}.
+#    To customize, either:
+#    - Edit config/feeds.yaml and set defaults.paths.* (supports ~ expansion)
+#    - Set env vars: B2S_ARCHIVE_ROOT, B2S_STATE_DIR, B2S_LOG_DIR (highest priority)
+#    Example in config/feeds.yaml:
+#      defaults:
+#        paths:
+#          archive_root: ~/my/podcasts/archive
+#          state_dir: ~/my/podcasts/state
+#          log_dir: ~/my/podcasts/logs
 
-# 5. Verify
+# 5. Lark — assumes lark-cli already configured (`lark-cli auth login`).
+
+# 6. Verify
 python -m broadcast2summary test
 python -m broadcast2summary run --dry-run
 ```

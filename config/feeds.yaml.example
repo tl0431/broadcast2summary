@@ -2,6 +2,10 @@ defaults:
   recent_n: 5
   language_hint: zh
   quality_l3_enabled: true
+  paths:
+    archive_root: ~/Knowledge/broadcast/archive
+    state_dir: ~/Knowledge/broadcast/state
+    log_dir: ~/Knowledge/broadcast/logs
 
 feeds:
   # Replace these with real feeds.

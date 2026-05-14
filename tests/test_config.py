@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from broadcast2summary.config import load_config, FeedConfig, AppConfig
+from broadcast2summary.config import load_config, FeedConfig, AppConfig, Paths
 
 
 def test_load_minimal_config_with_auth_token(tmp_path: Path):
@@ -31,6 +31,11 @@ feeds:
     assert feed.enabled is True
     assert cfg.deepseek_api_key == "k1"
     assert cfg.anthropic_auth_token == "k2"
+    # Check paths use built-in defaults
+    assert isinstance(cfg.paths, Paths)
+    assert cfg.paths.archive_root == Path.home() / "Knowledge" / "broadcast" / "archive"
+    assert cfg.paths.state_dir == Path.home() / "Knowledge" / "broadcast" / "state"
+    assert cfg.paths.log_dir == Path.home() / "Knowledge" / "broadcast" / "logs"
 
 
 def test_load_minimal_config_with_api_key_legacy(tmp_path: Path):
@@ -66,6 +71,81 @@ def test_load_config_with_base_url(tmp_path: Path):
         },
     )
     assert cfg.anthropic_base_url == "https://www.claudeide.net/api/anthropic"
+
+
+def test_load_config_paths_from_yaml(tmp_path: Path):
+    """Test that paths can be loaded from yaml defaults.paths."""
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  recent_n: 5
+  language_hint: zh
+  paths:
+    archive_root: /custom/archive
+    state_dir: /custom/state
+    log_dir: /custom/logs
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(feeds_yaml, env={"DEEPSEEK_API_KEY": "k1", "ANTHROPIC_AUTH_TOKEN": "k2"})
+    assert cfg.paths.archive_root == Path("/custom/archive")
+    assert cfg.paths.state_dir == Path("/custom/state")
+    assert cfg.paths.log_dir == Path("/custom/logs")
+
+
+def test_load_config_paths_env_override(tmp_path: Path):
+    """Test that env vars override yaml paths."""
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  recent_n: 5
+  language_hint: zh
+  paths:
+    archive_root: /yaml/archive
+    state_dir: /yaml/state
+    log_dir: /yaml/logs
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k1",
+            "ANTHROPIC_AUTH_TOKEN": "k2",
+            "B2S_ARCHIVE_ROOT": "/env/archive",
+            "B2S_STATE_DIR": "/env/state",
+            "B2S_LOG_DIR": "/env/logs",
+        },
+    )
+    assert cfg.paths.archive_root == Path("/env/archive")
+    assert cfg.paths.state_dir == Path("/env/state")
+    assert cfg.paths.log_dir == Path("/env/logs")
+
+
+def test_load_config_paths_tilde_expansion(tmp_path: Path):
+    """Test that ~ is expanded in paths."""
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  recent_n: 5
+  language_hint: zh
+  paths:
+    archive_root: ~/my/archive
+    state_dir: ~/my/state
+    log_dir: ~/my/logs
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(feeds_yaml, env={"DEEPSEEK_API_KEY": "k1", "ANTHROPIC_AUTH_TOKEN": "k2"})
+    assert cfg.paths.archive_root == Path.home() / "my" / "archive"
+    assert cfg.paths.state_dir == Path.home() / "my" / "state"
+    assert cfg.paths.log_dir == Path.home() / "my" / "logs"
 
 
 def test_missing_required_env_raises(tmp_path: Path):

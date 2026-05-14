@@ -11,6 +11,13 @@ Language = Literal["zh", "en"]
 
 
 @dataclass(frozen=True)
+class Paths:
+    archive_root: Path
+    state_dir: Path
+    log_dir: Path
+
+
+@dataclass(frozen=True)
 class Defaults:
     recent_n: int = 5
     language_hint: Language = "zh"
@@ -29,6 +36,7 @@ class FeedConfig:
 @dataclass(frozen=True)
 class AppConfig:
     defaults: Defaults
+    paths: Paths
     feeds: list[FeedConfig]
     deepseek_api_key: str
     anthropic_auth_token: str
@@ -80,6 +88,25 @@ def load_config(
         quality_l3_enabled=bool(defaults_raw.get("quality_l3_enabled", True)),
     )
 
+    # Build paths: env vars > yaml > built-in defaults
+    paths_raw = defaults_raw.get("paths") or {}
+    archive_root = Path(
+        env.get("B2S_ARCHIVE_ROOT")
+        or paths_raw.get("archive_root")
+        or "~/Knowledge/broadcast/archive"
+    ).expanduser()
+    state_dir = Path(
+        env.get("B2S_STATE_DIR")
+        or paths_raw.get("state_dir")
+        or "~/Knowledge/broadcast/state"
+    ).expanduser()
+    log_dir = Path(
+        env.get("B2S_LOG_DIR")
+        or paths_raw.get("log_dir")
+        or "~/Knowledge/broadcast/logs"
+    ).expanduser()
+    paths = Paths(archive_root=archive_root, state_dir=state_dir, log_dir=log_dir)
+
     feeds_raw = raw.get("feeds") or []
     feeds: list[FeedConfig] = []
     for f in feeds_raw:
@@ -106,6 +133,7 @@ def load_config(
 
     return AppConfig(
         defaults=defaults,
+        paths=paths,
         feeds=feeds,
         deepseek_api_key=require("DEEPSEEK_API_KEY"),
         anthropic_auth_token=anthropic_token,

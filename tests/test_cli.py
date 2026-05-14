@@ -19,7 +19,9 @@ def test_cli_help_lists_subcommands():
 def test_cli_test_subcommand_runs_smoke_path(tmp_path, monkeypatch):
     # `test` subcommand must run end-to-end with fixtures and return 0.
     env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
-           "BROADCAST2SUMMARY_HOME": str(tmp_path)}
+           "B2S_ARCHIVE_ROOT": str(tmp_path / "archive"),
+           "B2S_STATE_DIR": str(tmp_path / "state"),
+           "B2S_LOG_DIR": str(tmp_path / "logs")}
     r = subprocess.run(
         [sys.executable, "-m", "broadcast2summary", "test"],
         capture_output=True, text=True, env={**env},
@@ -44,7 +46,9 @@ feeds:
     )
     (tmp_path / "feed.xml").write_text((Path("tests/fixtures/sample_feed.xml")).read_text(encoding="utf-8"), encoding="utf-8")
     env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
-           "BROADCAST2SUMMARY_HOME": str(tmp_path),
+           "B2S_ARCHIVE_ROOT": str(tmp_path / "archive"),
+           "B2S_STATE_DIR": str(tmp_path / "state"),
+           "B2S_LOG_DIR": str(tmp_path / "logs"),
            "BROADCAST2SUMMARY_FEEDS": str(feeds)}
     r = subprocess.run(
         [sys.executable, "-m", "broadcast2summary", "run", "--dry-run"],
@@ -59,7 +63,9 @@ def test_cli_feeds_add_and_list(tmp_path):
     feeds = tmp_path / "feeds.yaml"
     feeds.write_text("feeds: []\n", encoding="utf-8")
     env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
-           "BROADCAST2SUMMARY_HOME": str(tmp_path),
+           "B2S_ARCHIVE_ROOT": str(tmp_path / "archive"),
+           "B2S_STATE_DIR": str(tmp_path / "state"),
+           "B2S_LOG_DIR": str(tmp_path / "logs"),
            "BROADCAST2SUMMARY_FEEDS": str(feeds)}
     r = subprocess.run(
         [sys.executable, "-m", "broadcast2summary", "feeds", "add",
@@ -81,7 +87,9 @@ def test_cli_list_failed_empty(tmp_path):
     feeds = tmp_path / "feeds.yaml"
     feeds.write_text("feeds: []\n", encoding="utf-8")
     env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
-           "BROADCAST2SUMMARY_HOME": str(tmp_path),
+           "B2S_ARCHIVE_ROOT": str(tmp_path / "archive"),
+           "B2S_STATE_DIR": str(tmp_path / "state"),
+           "B2S_LOG_DIR": str(tmp_path / "logs"),
            "BROADCAST2SUMMARY_FEEDS": str(feeds)}
     r = subprocess.run(
         [sys.executable, "-m", "broadcast2summary", "list-failed"],
