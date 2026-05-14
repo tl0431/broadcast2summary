@@ -18,17 +18,50 @@ def _client_factory() -> httpx.Client:
 def download_audio(url: str, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_suffix(dst.suffix + ".part")
+
+    # Check if we have a partial download to resume
+    existing = tmp.stat().st_size if tmp.exists() else 0
+
     try:
         with _client_factory() as client:
-            with client.stream("GET", url) as resp:
-                if resp.status_code != 200:
+            # If we have a partial file, check server size first
+            if existing > 0:
+                head = client.head(url)
+                if head.status_code == 200:
+                    total = int(head.headers.get("content-length", "0"))
+                    if total > 0 and existing >= total:
+                        # File is already complete
+                        if existing == total:
+                            tmp.replace(dst)
+                            return
+                        # File is corrupt (larger than server size)
+                        tmp.unlink(missing_ok=True)
+                        existing = 0
+
+            # Send Range header if we have a partial file
+            headers = {"Range": f"bytes={existing}-"} if existing > 0 else {}
+            with client.stream("GET", url, headers=headers) as resp:
+                if resp.status_code == 416:
+                    # Range not satisfiable — file was already complete or stale
+                    tmp.unlink(missing_ok=True)
+                    raise DownloadError(f"416 range not satisfiable for {url}; .part removed, retry next run")
+                if resp.status_code == 200:
+                    # Server doesn't support Range or ignored it — truncate and start over
+                    mode = "wb"
+                    existing = 0
+                elif resp.status_code == 206:
+                    # Partial content — append to existing file
+                    mode = "ab"
+                else:
                     raise DownloadError(f"HTTP {resp.status_code} for {url}")
-                with tmp.open("wb") as f:
+
+                with tmp.open(mode) as f:
                     for chunk in resp.iter_bytes(chunk_size=64 * 1024):
                         f.write(chunk)
     except httpx.HTTPError as e:
-        tmp.unlink(missing_ok=True)
+        # Keep .part on disk for resume on next attempt
         raise DownloadError(str(e)) from e
+
     size = tmp.stat().st_size
     if size < MIN_BYTES:
         tmp.unlink(missing_ok=True)
