@@ -1,8 +1,5 @@
-import json
-from pathlib import Path
-import pytest
 from broadcast2summary.transcribe import (
-    transcribe_audio, TranscriptionResult, Segment, StubBackend,
+    transcribe_audio, TranscriptionResult, StubBackend,
 )
 
 
