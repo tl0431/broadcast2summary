@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from pathlib import Path
 from broadcast2summary.state import (
     State, EpisodeRecord, FailedRecord,
