@@ -52,6 +52,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "test":
         from .test_mode import run_test_mode
         return run_test_mode(component=args.component, live=args.live)
-    # other commands wired in Task 17/18
+    if args.cmd == "run":
+        from .runner import cmd_run
+        return cmd_run(feed_name=args.feed, dry_run=args.dry_run)
+    if args.cmd == "backfill":
+        from .runner import cmd_backfill
+        return cmd_backfill(args.feed, args.since)
+    if args.cmd == "fetch-one":
+        from .runner import cmd_fetch_one
+        return cmd_fetch_one(args.url)
     print(f"command not yet implemented: {args.cmd}", file=sys.stderr)
     return 2
