@@ -132,7 +132,7 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path,
         l3_enabled=cfg.defaults.quality_l3_enabled,
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
-        claude=ClaudeClient(api_key=cfg.anthropic_api_key, cheap=cheap),
+        claude=ClaudeClient(auth_token=cfg.anthropic_auth_token, base_url=cfg.anthropic_base_url, cheap=cheap),
     )
 
 

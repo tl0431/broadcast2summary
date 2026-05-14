@@ -119,20 +119,19 @@ class DeepSeekClient:
 
 
 class ClaudeClient:
-    def __init__(self, api_key: str, *, cheap: bool = False, model: str | None = None):
+    def __init__(self, auth_token: str, *, base_url: str | None = None, cheap: bool = False, model: str | None = None):
         from anthropic import Anthropic  # lazy
-        self._client = Anthropic(api_key=api_key)
+        self._client = Anthropic(api_key=auth_token, base_url=base_url)
         if model is not None:
             self.model = model
         else:
             self.model = "claude-haiku-4-5-20251001" if cheap else "claude-sonnet-4-6"
 
     def complete(self, prompt: str, *, temperature: float) -> str:
-        resp = self._client.messages.create(
+        with self._client.messages.stream(
             model=self.model,
             max_tokens=4000,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
-        )
-        # Concatenate any text blocks
-        return "".join(b.text for b in resp.content if hasattr(b, "text"))
+        ) as stream:
+            return "".join(text for text in stream.text_stream)
