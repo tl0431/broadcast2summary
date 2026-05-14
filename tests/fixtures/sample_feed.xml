@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>Test Show</title>
+  <description>A test podcast</description>
+  <item>
+    <title>Episode 100: The Latest</title>
+    <guid>ep-100-guid</guid>
+    <pubDate>Mon, 12 May 2026 10:00:00 +0000</pubDate>
+    <enclosure url="https://cdn.example.com/100.mp3" length="48000000" type="audio/mpeg"/>
+    <itunes:duration xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">3600</itunes:duration>
+  </item>
+  <item>
+    <title>Episode 099: Older</title>
+    <guid>ep-099-guid</guid>
+    <pubDate>Sun, 04 May 2026 10:00:00 +0000</pubDate>
+    <enclosure url="https://cdn.example.com/099.mp3" length="48000000" type="audio/mpeg"/>
+    <itunes:duration xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">3600</itunes:duration>
+  </item>
+</channel>
+</rss>
