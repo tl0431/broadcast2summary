@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+
+SUMMARY_PROMPT = """你是专业播客内容编辑。请基于以下播客转写稿生成结构化摘要。
+
+【节目】{show_name}
+【单期】{episode_title}
+【时长】{duration_minutes} 分钟
+【嘉宾(若已知)】{guests_hint}
+
+【转写稿】
+{transcript_with_timestamps}
+
+【输出要求】
+严格输出符合以下 JSON Schema 的对象,不要任何 markdown 围栏或解释文字:
+
+{{
+  "tldr": "100-300 字的核心总结,客观陈述",
+  "key_points": ["5-10 条核心要点,每条 30-150 字"],
+  "quotes": ["0-5 条值得保留的金句"],
+  "resources": [{{"type": "book|paper|website|product", "title": "...", "url": "若提及"}}],
+  "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
+  "guests": ["嘉宾姓名列表"],
+  "actionable_items": ["听众可执行的具体建议,可空"]
+}}
+
+要求:
+1. 用中文输出,即使原文是英文(英文播客做"中文摘要")
+2. chapters 至少 3 段,按时间顺序
+3. 不要编造原文未出现的信息
+4. 拒绝使用"作为 AI 助手"等元话语
+"""
+
+
+def render_summary_prompt(
+    *,
+    show_name: str,
+    episode_title: str,
+    duration_minutes: int,
+    transcript_with_timestamps: str,
+    guests_hint: str | None,
+) -> str:
+    return SUMMARY_PROMPT.format(
+        show_name=show_name,
+        episode_title=episode_title,
+        duration_minutes=duration_minutes,
+        transcript_with_timestamps=transcript_with_timestamps,
+        guests_hint=guests_hint or "未知,请从内容判断",
+    )
