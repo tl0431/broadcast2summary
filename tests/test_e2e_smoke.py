@@ -2,7 +2,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 
 def test_python_module_smoke_test_subcommand():
@@ -22,7 +21,6 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
     from broadcast2summary.transcribe import StubBackend
     from broadcast2summary.summarize import SummarizeStubs
     from broadcast2summary.pipeline import process_episode, PipelineDeps
-    import json
 
     # Create a much longer transcript to satisfy quality ratio check (need ratio <= 0.20)
     # Generate 100+ segments with substantial content to ensure transcript is long enough
@@ -152,7 +150,8 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
                                                       "url": "https://lark/doc"}}})
             return ""
 
-    state = State(tmp_path / "s.db"); state.init_schema()
+    state = State(tmp_path / "s.db")
+    state.init_schema()
     # Load summary fixture: all three attempts may be tried due to quality checks
     summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
 

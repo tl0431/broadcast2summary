@@ -1,19 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import os
 from urllib.parse import urlparse
 import httpx
 import yaml as _yaml
-from .config import AppConfig, FeedConfig, load_config
-from .state import State, FailedRecord
+from .config import AppConfig, load_config
+from .state import State
 from .rss import parse_feed, filter_new_episodes, Episode
 from .download import download_audio
 from .transcribe import FasterWhisperBackend
 from .summarize import DeepSeekClient, ClaudeClient
 from .lark_client import LarkClient
-from .pipeline import process_episode, PipelineDeps, EpisodeResult
+from .pipeline import process_episode, PipelineDeps
 from .logging_setup import configure_run_logging, write_summary_header, RunStats
 
 
@@ -45,7 +44,8 @@ def _fetch_feed_xml(rss_url: str) -> str:
 def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int:
     home = _home()
     state_dir = home / "state"
-    state = State(state_dir / "processed.db"); state.init_schema()
+    state = State(state_dir / "processed.db")
+    state.init_schema()
     log_file = configure_run_logging(log_dir=home / "logs",
                                      run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     cfg = _load()
@@ -77,8 +77,10 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
         for ep in pending_by_feed[f.name]:
             try:
                 result = process_episode(ep, deps=deps)
-                if result.success: stats.episodes_success += 1
-                else: stats.episodes_failed += 1
+                if result.success:
+                    stats.episodes_success += 1
+                else:
+                    stats.episodes_failed += 1
             except Exception:
                 stats.episodes_failed += 1
         state.touch_feed_run(f.name, success=True,
@@ -95,7 +97,8 @@ def cmd_fetch_one(url: str) -> int:
 
 def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     home = _home()
-    state = State(home / "state" / "processed.db"); state.init_schema()
+    state = State(home / "state" / "processed.db")
+    state.init_schema()
     cfg = _load()
     feed = cfg.find_feed(feed_name)
     if not feed:
@@ -135,7 +138,8 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path,
 
 def cmd_list_failed() -> int:
     home = _home()
-    state = State(home / "state" / "processed.db"); state.init_schema()
+    state = State(home / "state" / "processed.db")
+    state.init_schema()
     rows = state.list_failed()
     if not rows:
         print("no failed episodes (0 failed)")
@@ -148,7 +152,8 @@ def cmd_list_failed() -> int:
 def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
     home = _home()
     state_dir = home / "state"
-    state = State(state_dir / "processed.db"); state.init_schema()
+    state = State(state_dir / "processed.db")
+    state.init_schema()
     cfg = _load()
     deps = _build_deps(cfg, state, state_dir, home, cheap=_cheap_from_env(cheap))
     rows = state.list_failed() if guid is None else [state.get_failed(guid)] if state.get_failed(guid) else []
