@@ -61,5 +61,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "fetch-one":
         from .runner import cmd_fetch_one
         return cmd_fetch_one(args.url)
+    if args.cmd == "list-failed":
+        from .runner import cmd_list_failed
+        return cmd_list_failed()
+    if args.cmd == "retry-failed":
+        from .runner import cmd_retry_failed
+        return cmd_retry_failed(args.guid)
+    if args.cmd == "feeds":
+        from .runner import cmd_feeds_add, cmd_feeds_remove, cmd_feeds_list
+        if args.feeds_cmd == "add":
+            return cmd_feeds_add(args.name, args.rss_url, args.source, args.language)
+        if args.feeds_cmd == "remove":
+            return cmd_feeds_remove(args.name)
+        if args.feeds_cmd == "list":
+            return cmd_feeds_list()
     print(f"command not yet implemented: {args.cmd}", file=sys.stderr)
     return 2

@@ -5,8 +5,9 @@ from pathlib import Path
 import os
 from urllib.parse import urlparse
 import httpx
+import yaml as _yaml
 from .config import AppConfig, FeedConfig, load_config
-from .state import State
+from .state import State, FailedRecord
 from .rss import parse_feed, filter_new_episodes, Episode
 from .download import download_audio
 from .transcribe import FasterWhisperBackend
@@ -123,3 +124,71 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path) -> Pi
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key),
         claude=ClaudeClient(api_key=cfg.anthropic_api_key),
     )
+
+
+def cmd_list_failed() -> int:
+    home = _home()
+    state = State(home / "state" / "processed.db"); state.init_schema()
+    rows = state.list_failed()
+    if not rows:
+        print("no failed episodes (0 failed)")
+        return 0
+    for r in rows:
+        print(f"{r.guid}  [{r.failed_stage}]  {r.feed_name} / {r.title}  attempts={r.attempts}")
+    return 0
+
+
+def cmd_retry_failed(guid: str | None) -> int:
+    home = _home()
+    state_dir = home / "state"
+    state = State(state_dir / "processed.db"); state.init_schema()
+    cfg = _load()
+    deps = _build_deps(cfg, state, state_dir, home)
+    rows = state.list_failed() if guid is None else [state.get_failed(guid)] if state.get_failed(guid) else []
+    for r in rows:
+        feed = cfg.find_feed(r.feed_name)
+        if feed is None:
+            continue
+        ep = Episode(
+            guid=r.guid, title=r.title, pub_date="",
+            audio_url=r.audio_url, duration_seconds=0, feed_name=r.feed_name,
+        )
+        process_episode(ep, deps=deps)
+    return 0
+
+
+def cmd_feeds_add(name: str, rss_url: str, source: str, language: str) -> int:
+    path = _feeds_path()
+    raw = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw.setdefault("feeds", [])
+    if any(f.get("name") == name for f in raw["feeds"]):
+        print(f"feed already exists: {name}", flush=True)
+        return 2
+    raw["feeds"].append({
+        "name": name, "rss_url": rss_url, "source": source,
+        "language": language, "enabled": True,
+    })
+    path.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    print(f"added: {name}")
+    return 0
+
+
+def cmd_feeds_remove(name: str) -> int:
+    path = _feeds_path()
+    raw = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    before = len(raw.get("feeds", []))
+    raw["feeds"] = [f for f in raw.get("feeds", []) if f.get("name") != name]
+    if len(raw["feeds"]) == before:
+        print(f"no such feed: {name}", flush=True)
+        return 2
+    path.write_text(_yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    print(f"removed: {name}")
+    return 0
+
+
+def cmd_feeds_list() -> int:
+    cfg = _load()
+    for f in cfg.feeds:
+        mark = "✓" if f.enabled else "✗"
+        print(f"{mark} {f.name}  [{f.source}/{f.language}]  {f.rss_url}")
+    return 0

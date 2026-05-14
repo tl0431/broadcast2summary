@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+import yaml
 
 
 def test_cli_help_lists_subcommands():
@@ -52,3 +53,39 @@ feeds:
     assert r.returncode == 0, r.stderr
     assert "FakeFeed" in r.stdout
     assert "ep-100-guid" in r.stdout
+
+
+def test_cli_feeds_add_and_list(tmp_path):
+    feeds = tmp_path / "feeds.yaml"
+    feeds.write_text("feeds: []\n", encoding="utf-8")
+    env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
+           "BROADCAST2SUMMARY_HOME": str(tmp_path),
+           "BROADCAST2SUMMARY_FEEDS": str(feeds)}
+    r = subprocess.run(
+        [sys.executable, "-m", "broadcast2summary", "feeds", "add",
+         "NewFeed", "https://x/rss", "--source", "xiaoyuzhou", "--language", "zh"],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    data = yaml.safe_load(feeds.read_text(encoding="utf-8"))
+    assert any(f["name"] == "NewFeed" for f in data["feeds"])
+
+    r2 = subprocess.run(
+        [sys.executable, "-m", "broadcast2summary", "feeds", "list"],
+        capture_output=True, text=True, env=env,
+    )
+    assert "NewFeed" in r2.stdout
+
+
+def test_cli_list_failed_empty(tmp_path):
+    feeds = tmp_path / "feeds.yaml"
+    feeds.write_text("feeds: []\n", encoding="utf-8")
+    env = {"DEEPSEEK_API_KEY": "x", "ANTHROPIC_API_KEY": "x",
+           "BROADCAST2SUMMARY_HOME": str(tmp_path),
+           "BROADCAST2SUMMARY_FEEDS": str(feeds)}
+    r = subprocess.run(
+        [sys.executable, "-m", "broadcast2summary", "list-failed"],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode == 0
+    assert "0 failed" in r.stdout or "no failed" in r.stdout.lower()
