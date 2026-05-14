@@ -61,9 +61,9 @@ class StubBackend:
 class FasterWhisperBackend:
     """Real backend. Imports faster_whisper lazily so tests don't need CTranslate2 runtime."""
 
-    def __init__(self, model_size: str = "large-v3-turbo", device: str = "cpu",
-                 compute_type: str = "int8", language_hint: str | None = None):
-        self.model_size = model_size
+    def __init__(self, *, cheap: bool = False, language_hint: str | None = None,
+                 device: str = "cpu", compute_type: str = "int8"):
+        self.model_size = "small" if cheap else "large-v3-turbo"
         self.device = device
         self.compute_type = compute_type
         self.language_hint = language_hint

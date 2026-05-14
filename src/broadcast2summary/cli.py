@@ -13,6 +13,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--feed", help="limit to a single feed by name")
     run.add_argument("--dry-run", action="store_true",
                      help="enumerate pending episodes only, no work")
+    run.add_argument("--cheap", action="store_true",
+                     help="use cheap models (Whisper small, Claude Haiku) for iteration")
 
     test = sub.add_parser("test", help="End-to-end smoke test against fixtures")
     test.add_argument("--component",
@@ -23,13 +25,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch_one = sub.add_parser("fetch-one", help="Process a single episode by URL")
     fetch_one.add_argument("url")
+    fetch_one.add_argument("--cheap", action="store_true")
 
     backfill = sub.add_parser("backfill", help="Pull historical episodes")
     backfill.add_argument("feed")
     backfill.add_argument("--since", required=True, help="ISO date YYYY-MM-DD")
+    backfill.add_argument("--cheap", action="store_true")
 
-    sub.add_parser("retry-failed", help="Retry failed queue")\
-       .add_argument("--guid", help="only retry one guid")
+    retry = sub.add_parser("retry-failed", help="Retry failed queue")
+    retry.add_argument("--guid", help="only retry one guid")
+    retry.add_argument("--cheap", action="store_true")
 
     sub.add_parser("list-failed", help="Print failed queue")
 
@@ -54,19 +59,19 @@ def main(argv: list[str] | None = None) -> int:
         return run_test_mode(component=args.component, live=args.live)
     if args.cmd == "run":
         from .runner import cmd_run
-        return cmd_run(feed_name=args.feed, dry_run=args.dry_run)
+        return cmd_run(feed_name=args.feed, dry_run=args.dry_run, cheap=args.cheap)
     if args.cmd == "backfill":
         from .runner import cmd_backfill
-        return cmd_backfill(args.feed, args.since)
+        return cmd_backfill(args.feed, args.since, cheap=args.cheap)
     if args.cmd == "fetch-one":
         from .runner import cmd_fetch_one
-        return cmd_fetch_one(args.url)
+        return cmd_fetch_one(args.url, cheap=args.cheap)
     if args.cmd == "list-failed":
         from .runner import cmd_list_failed
         return cmd_list_failed()
     if args.cmd == "retry-failed":
         from .runner import cmd_retry_failed
-        return cmd_retry_failed(args.guid)
+        return cmd_retry_failed(args.guid, cheap=args.cheap)
     if args.cmd == "feeds":
         from .runner import cmd_feeds_add, cmd_feeds_remove, cmd_feeds_list
         if args.feeds_cmd == "add":

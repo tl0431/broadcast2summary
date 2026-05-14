@@ -56,3 +56,19 @@ Then in Claude Code, ask things like:
 ## Layout
 
 See `docs/superpowers/specs/2026-05-13-broadcast2summary-design.md` for the full architecture.
+
+## Dev / cheap mode
+
+When iterating on code or prompts, set the `--cheap` flag (or env `BROADCAST2SUMMARY_CHEAP=1`):
+
+```bash
+python -m broadcast2summary run --cheap --dry-run
+python -m broadcast2summary run --cheap --feed "<one feed>"
+BROADCAST2SUMMARY_CHEAP=1 python -m broadcast2summary retry-failed
+```
+
+This swaps:
+- Whisper `large-v3-turbo` → `small` (faster, lower accuracy)
+- Claude fallback `sonnet-4.6` → `haiku-4.5` (cheaper)
+
+DeepSeek is already cheap and not affected.

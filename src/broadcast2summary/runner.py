@@ -26,6 +26,12 @@ def _feeds_path() -> Path:
                 or _home() / "config" / "feeds.yaml")
 
 
+def _cheap_from_env(flag: bool) -> bool:
+    if flag:
+        return True
+    return os.environ.get("BROADCAST2SUMMARY_CHEAP", "").lower() in ("1", "true", "yes")
+
+
 def _load() -> AppConfig:
     return load_config(_feeds_path())
 
@@ -36,7 +42,7 @@ def _fetch_feed_xml(rss_url: str) -> str:
     return httpx.get(rss_url, timeout=30, follow_redirects=True).text
 
 
-def cmd_run(*, feed_name: str | None, dry_run: bool) -> int:
+def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int:
     home = _home()
     state_dir = home / "state"
     state = State(state_dir / "processed.db"); state.init_schema()
@@ -66,7 +72,7 @@ def cmd_run(*, feed_name: str | None, dry_run: bool) -> int:
         write_summary_header(log_file, stats)
         return 0
 
-    deps = _build_deps(cfg, state, state_dir, home)
+    deps = _build_deps(cfg, state, state_dir, home, cheap=_cheap_from_env(cheap))
     for f in feeds:
         for ep in pending_by_feed[f.name]:
             try:
@@ -87,7 +93,7 @@ def cmd_fetch_one(url: str) -> int:
     raise NotImplementedError("see plan §future: URL resolver for xiaoyuzhou/apple")
 
 
-def cmd_backfill(feed_name: str, since: str) -> int:
+def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     home = _home()
     state = State(home / "state" / "processed.db"); state.init_schema()
     cfg = _load()
@@ -99,7 +105,7 @@ def cmd_backfill(feed_name: str, since: str) -> int:
     episodes = parse_feed(xml, feed_name=feed.name)
     cutoff = since
     targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
-    deps = _build_deps(cfg, state, home / "state", home)
+    deps = _build_deps(cfg, state, home / "state", home, cheap=_cheap_from_env(cheap))
     for ep in targets:
         process_episode(ep, deps=deps)
     return 0
@@ -109,10 +115,11 @@ def _already_processed(state: State, episodes) -> set[str]:
     return {e.guid for e in episodes if state.is_processed(e.guid)}
 
 
-def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path) -> PipelineDeps:
+def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path,
+                *, cheap: bool = False) -> PipelineDeps:
     return PipelineDeps(
         state=state,
-        transcribe_backend=FasterWhisperBackend(),
+        transcribe_backend=FasterWhisperBackend(cheap=cheap),
         archive_root=home / "archive",
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
@@ -121,8 +128,8 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, home: Path) -> Pi
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
         lark=LarkClient(),
-        deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key),
-        claude=ClaudeClient(api_key=cfg.anthropic_api_key),
+        deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
+        claude=ClaudeClient(api_key=cfg.anthropic_api_key, cheap=cheap),
     )
 
 
@@ -138,12 +145,12 @@ def cmd_list_failed() -> int:
     return 0
 
 
-def cmd_retry_failed(guid: str | None) -> int:
+def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
     home = _home()
     state_dir = home / "state"
     state = State(state_dir / "processed.db"); state.init_schema()
     cfg = _load()
-    deps = _build_deps(cfg, state, state_dir, home)
+    deps = _build_deps(cfg, state, state_dir, home, cheap=_cheap_from_env(cheap))
     rows = state.list_failed() if guid is None else [state.get_failed(guid)] if state.get_failed(guid) else []
     for r in rows:
         feed = cfg.find_feed(r.feed_name)

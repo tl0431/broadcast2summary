@@ -102,8 +102,8 @@ def _call(client: LLMClient | None, stubs: SummarizeStubs | None, *,
 
 
 class DeepSeekClient:
-    """OpenAI-compatible client for deepseek-chat."""
-    def __init__(self, api_key: str, model: str = "deepseek-chat"):
+    """OpenAI-compatible client for deepseek-chat. cheap kwarg accepted but ignored — already cheap."""
+    def __init__(self, api_key: str, *, cheap: bool = False, model: str = "deepseek-chat"):
         from openai import OpenAI  # lazy
         self._client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         self.model = model
@@ -119,10 +119,13 @@ class DeepSeekClient:
 
 
 class ClaudeClient:
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, api_key: str, *, cheap: bool = False, model: str | None = None):
         from anthropic import Anthropic  # lazy
         self._client = Anthropic(api_key=api_key)
-        self.model = model
+        if model is not None:
+            self.model = model
+        else:
+            self.model = "claude-haiku-4-5-20251001" if cheap else "claude-sonnet-4-6"
 
     def complete(self, prompt: str, *, temperature: float) -> str:
         resp = self._client.messages.create(
