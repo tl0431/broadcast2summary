@@ -84,3 +84,32 @@ This swaps:
 - Claude fallback `sonnet-4.6` → `haiku-4.5` (cheaper)
 
 DeepSeek is already cheap and not affected.
+
+## Performance & memory safety
+
+Single-episode transcription on M2 8GB takes ~12 min in cheap mode (was ~27 min in v1)
+thanks to faster-whisper `BatchedInferencePipeline`.
+
+For multi-episode batches, you can opt in to cross-episode parallelism:
+
+```yaml
+# config/feeds.yaml
+defaults:
+  transcribe:
+    parallelism: 2          # default 1 (serial, safest)
+    batch_size: 8
+    convert_traditional: true       # zh-Hant -> zh-Hans (opencc)
+    min_avail_gb_per_worker: 1.5    # auto-降档 below this
+```
+
+Or via env vars: `B2S_TRANSCRIBE_PARALLELISM`, `B2S_TRANSCRIBE_BATCH_SIZE`,
+`B2S_TRANSCRIBE_MIN_AVAIL_GB`.
+
+**Safety nets** (all automatic, layered):
+1. **Pre-check**: at startup, if free RAM < `min_avail_gb_per_worker × parallelism`,
+   降档 to a safe N (minimum 1).
+2. **Watchdog**: a daemon thread polls memory pressure every 30s. Above 90%, it
+   pauses dispatch (already-running workers are NEVER killed). Resumes below 80%.
+3. **Default N=1**: serial mode is the safe default; bumping to 2 is opt-in.
+
+If your machine is busy (Chrome, Claude Code, IDE all open), keep N=1.
