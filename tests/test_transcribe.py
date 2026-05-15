@@ -119,3 +119,12 @@ def test_faster_whisper_backend_passes_batch_size(monkeypatch):
     assert captured["batch_size"] == 16
     assert captured["language"] == "zh"
     assert captured["vad_filter"] is True
+
+
+def test_segment_has_translation_field():
+    from broadcast2summary.transcribe import Segment
+    s = Segment(start=0.0, end=5.0, text="hello")
+    assert s.translation is None
+
+    s2 = Segment(start=0.0, end=5.0, text="hello", translation="你好")
+    assert s2.translation == "你好"

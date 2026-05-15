@@ -14,6 +14,7 @@ class Episode:
     duration_seconds: int  # 0 if unknown
     feed_name: str = ""    # filled by caller
     wiki_node_token: str | None = None
+    language: str = "zh"   # "zh" or "en"; injected from FeedConfig.language
 
 
 def parse_feed(rss_xml: str, *, feed_name: str = "") -> list[Episode]:

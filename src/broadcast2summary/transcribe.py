@@ -10,6 +10,7 @@ class Segment:
     start: float
     end: float
     text: str
+    translation: str | None = None
 
     def timestamp(self) -> str:
         return _fmt_hms(self.start)

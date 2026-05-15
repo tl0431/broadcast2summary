@@ -25,3 +25,14 @@ def test_filter_respects_recent_n(fixtures_dir):
     new = filter_new_episodes(episodes, already_processed=set(), recent_n=1)
     # Most recent only
     assert [e.guid for e in new] == ["ep-100-guid"]
+
+
+def test_episode_has_language_field():
+    from broadcast2summary.rss import Episode
+    ep = Episode(guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+                 audio_url="https://x/a.mp3", duration_seconds=60)
+    assert ep.language == "zh"
+
+    ep2 = Episode(guid="g2", title="t", pub_date="2026-05-16T00:00:00Z",
+                  audio_url="https://x/a.mp3", duration_seconds=60, language="en")
+    assert ep2.language == "en"
