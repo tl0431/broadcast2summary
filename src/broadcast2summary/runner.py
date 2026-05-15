@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import os
 from urllib.parse import urlparse
+import logging
 import httpx
 import yaml as _yaml
 from .config import AppConfig, load_config
@@ -14,6 +15,33 @@ from .summarize import DeepSeekClient, ClaudeClient
 from .lark_client import LarkClient
 from .pipeline import process_episode, PipelineDeps
 from .logging_setup import configure_run_logging, write_summary_header, RunStats
+
+logger = logging.getLogger("broadcast2summary.runner")
+
+
+def _resolve_parallelism(cfg_n: int, *, min_avail_gb: float = 1.5) -> int:
+	"""Honor cfg, but auto-降档 when free RAM < min_avail_gb * n.
+
+	Returns at least 1. If psutil is unavailable, returns cfg_n unchanged.
+	"""
+	if cfg_n <= 1:
+		return 1
+	try:
+		import psutil
+		if psutil is None:
+			return cfg_n
+	except ImportError:
+		return cfg_n
+	avail_gb = psutil.virtual_memory().available / 1024**3
+	needed_gb = min_avail_gb * cfg_n
+	if avail_gb < needed_gb:
+		safe_n = max(1, int(avail_gb / min_avail_gb))
+		logger.warning(
+			"avail RAM %.1fGB < %.1fGB needed for N=%d; 降档到 N=%d",
+			avail_gb, needed_gb, cfg_n, safe_n,
+		)
+		return min(cfg_n, safe_n)
+	return cfg_n
 
 
 def _feeds_path() -> Path:
