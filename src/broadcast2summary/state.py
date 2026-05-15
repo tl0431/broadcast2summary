@@ -84,6 +84,7 @@ class State:
     def _conn(self) -> sqlite3.Connection:
         c = sqlite3.connect(self.db_path)
         c.row_factory = sqlite3.Row
+        c.execute("PRAGMA journal_mode=WAL")
         return c
 
     def init_schema(self) -> None:

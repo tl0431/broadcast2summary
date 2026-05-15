@@ -5,6 +5,7 @@ import os
 from urllib.parse import urlparse
 import logging
 import threading
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import httpx
 import yaml as _yaml
 from .config import AppConfig, load_config
@@ -134,10 +135,14 @@ def _fetch_feed_xml(rss_url: str) -> str:
 
 def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int:
     cfg = _load()
-    state = State(cfg.paths.state_dir / "processed.db")
+    state_dir = cfg.paths.state_dir
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state = State(state_dir / "processed.db")
     state.init_schema()
-    log_file = configure_run_logging(log_dir=cfg.paths.log_dir,
-                                     run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    log_file = configure_run_logging(
+        log_dir=cfg.paths.log_dir,
+        run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
 
     feeds = [f for f in cfg.enabled_feeds() if feed_name is None or f.name == feed_name]
     stats = RunStats(feeds_total=len(feeds), started_at=datetime.now().strftime("%H:%M"))
@@ -147,8 +152,9 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
         xml = _fetch_feed_xml(f.rss_url)
         episodes = parse_feed(xml, feed_name=f.name)
         processed = _already_processed(state, episodes)
-        new = filter_new_episodes(episodes, already_processed=processed,
-                                  recent_n=cfg.defaults.recent_n)
+        new = filter_new_episodes(
+            episodes, already_processed=processed, recent_n=cfg.defaults.recent_n
+        )
         pending_by_feed[f.name] = new
         stats.episodes_new += len(new)
 
@@ -161,9 +167,18 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
         write_summary_header(log_file, stats)
         return 0
 
-    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
-    for f in feeds:
-        for ep in pending_by_feed[f.name]:
+    cheap_resolved = _cheap_from_env(cheap)
+    n = _resolve_parallelism(
+        cfg.transcribe.parallelism,
+        min_avail_gb=cfg.transcribe.min_avail_gb_per_worker,
+    )
+    all_pending: list[tuple[Episode, object]] = [
+        (ep, f) for f in feeds for ep in pending_by_feed[f.name]
+    ]
+
+    if n <= 1:
+        deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=cheap_resolved)
+        for ep, _ in all_pending:
             try:
                 result = process_episode(ep, deps=deps)
                 if result.success:
@@ -171,9 +186,39 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
                 else:
                     stats.episodes_failed += 1
             except Exception:
+                logger.exception("serial episode crashed: %s", ep.guid)
                 stats.episodes_failed += 1
-        state.touch_feed_run(f.name, success=True,
-                             at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    else:
+        watchdog = MemoryWatchdog(threshold_pct=90, recover_pct=80, poll_interval=30.0)
+        watchdog.start()
+        deps_args = _serialize_deps_args(cfg, cheap=cheap_resolved)
+        try:
+            with ProcessPoolExecutor(max_workers=n) as pool:
+                futures = {}
+                for ep, _ in all_pending:
+                    watchdog.wait_if_pressured(timeout=600.0)
+                    futures[pool.submit(_run_in_worker, ep, deps_args)] = ep
+                for fut in as_completed(futures):
+                    try:
+                        result = fut.result()
+                        if result.success:
+                            stats.episodes_success += 1
+                        else:
+                            stats.episodes_failed += 1
+                    except Exception:
+                        logger.exception(
+                            "worker crashed for %s", futures[fut].guid
+                        )
+                        stats.episodes_failed += 1
+        finally:
+            watchdog.stop()
+
+    for f in feeds:
+        state.touch_feed_run(
+            f.name,
+            success=True,
+            at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
 
     stats.finished_at = datetime.now().strftime("%H:%M")
     write_summary_header(log_file, stats)
@@ -186,7 +231,9 @@ def cmd_fetch_one(url: str) -> int:
 
 def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     cfg = _load()
-    state = State(cfg.paths.state_dir / "processed.db")
+    state_dir = cfg.paths.state_dir
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state = State(state_dir / "processed.db")
     state.init_schema()
     feed = cfg.find_feed(feed_name)
     if not feed:
@@ -196,7 +243,7 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     episodes = parse_feed(xml, feed_name=feed.name)
     cutoff = since
     targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
-    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
+    deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=_cheap_from_env(cheap))
     for ep in targets:
         process_episode(ep, deps=deps)
     return 0
@@ -206,21 +253,86 @@ def _already_processed(state: State, episodes) -> set[str]:
     return {e.guid for e in episodes if state.is_processed(e.guid)}
 
 
-def _build_deps(cfg: AppConfig, state: State, *, cheap: bool = False) -> PipelineDeps:
+def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
+                *, cheap: bool = False) -> PipelineDeps:
     return PipelineDeps(
         state=state,
-        transcribe_backend=FasterWhisperBackend(cheap=cheap),
-        archive_root=cfg.paths.archive_root,
-        audio_dir=cfg.paths.state_dir / "audio",
-        failed_dir=cfg.paths.state_dir / "failed",
+        transcribe_backend=FasterWhisperBackend(
+            cheap=cheap,
+            batch_size=cfg.transcribe.batch_size,
+            convert_traditional=cfg.transcribe.convert_traditional,
+        ),
+        archive_root=paths.archive_root,
+        audio_dir=state_dir / "audio",
+        failed_dir=state_dir / "failed",
         im_target=cfg.lark_im_target_open_id,
         wiki_root=cfg.lark_wiki_root_token,
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
-        claude=ClaudeClient(auth_token=cfg.anthropic_auth_token, base_url=cfg.anthropic_base_url, cheap=cheap),
+        claude=ClaudeClient(
+            auth_token=cfg.anthropic_auth_token,
+            base_url=cfg.anthropic_base_url,
+            cheap=cheap,
+        ),
     )
+
+
+def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
+    return {
+        "deepseek_api_key": cfg.deepseek_api_key,
+        "anthropic_auth_token": cfg.anthropic_auth_token,
+        "anthropic_base_url": cfg.anthropic_base_url,
+        "im_target": cfg.lark_im_target_open_id,
+        "wiki_root": cfg.lark_wiki_root_token,
+        "archive_root": str(cfg.paths.archive_root),
+        "state_dir": str(cfg.paths.state_dir),
+        "l3_enabled": cfg.defaults.quality_l3_enabled,
+        "batch_size": cfg.transcribe.batch_size,
+        "convert_traditional": cfg.transcribe.convert_traditional,
+        "cheap": cheap,
+    }
+
+
+def _run_in_worker(ep: Episode, deps_args: dict):
+    from pathlib import Path as _P
+    from .state import State
+    from .transcribe import FasterWhisperBackend
+    from .summarize import DeepSeekClient, ClaudeClient
+    from .lark_client import LarkClient
+    from .download import download_audio
+    from .pipeline import PipelineDeps, process_episode
+
+    state_dir = _P(deps_args["state_dir"])
+    archive_root = _P(deps_args["archive_root"])
+    state = State(state_dir / "processed.db")
+    state.init_schema()
+    cheap = bool(deps_args["cheap"])
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=FasterWhisperBackend(
+            cheap=cheap,
+            batch_size=int(deps_args["batch_size"]),
+            convert_traditional=bool(deps_args["convert_traditional"]),
+        ),
+        archive_root=archive_root,
+        audio_dir=state_dir / "audio",
+        failed_dir=state_dir / "failed",
+        im_target=deps_args["im_target"],
+        wiki_root=deps_args["wiki_root"],
+        download_fn=download_audio,
+        l3_enabled=bool(deps_args["l3_enabled"]),
+        lark=LarkClient(),
+        deepseek=DeepSeekClient(api_key=deps_args["deepseek_api_key"], cheap=cheap),
+        claude=ClaudeClient(
+            auth_token=deps_args["anthropic_auth_token"],
+            base_url=deps_args["anthropic_base_url"],
+            cheap=cheap,
+        ),
+    )
+    return process_episode(ep, deps=deps)
+
 
 
 def cmd_list_failed() -> int:
@@ -238,10 +350,16 @@ def cmd_list_failed() -> int:
 
 def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
     cfg = _load()
-    state = State(cfg.paths.state_dir / "processed.db")
+    state_dir = cfg.paths.state_dir
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state = State(state_dir / "processed.db")
     state.init_schema()
-    deps = _build_deps(cfg, state, cheap=_cheap_from_env(cheap))
-    rows = state.list_failed() if guid is None else [state.get_failed(guid)] if state.get_failed(guid) else []
+    deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=_cheap_from_env(cheap))
+    rows = (
+        state.list_failed()
+        if guid is None
+        else ([state.get_failed(guid)] if state.get_failed(guid) else [])
+    )
     for r in rows:
         feed = cfg.find_feed(r.feed_name)
         if feed is None:
