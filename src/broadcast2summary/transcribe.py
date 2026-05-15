@@ -110,9 +110,13 @@ class FasterWhisperBackend:
                 from opencc import OpenCC
                 self._cc = OpenCC("t2s")
             segs = [
-                Segment(start=s.start, end=s.end, text=self._cc.convert(s.text))
+                Segment(start=s.start, end=s.end, text=self._cc.convert(s.text),
+                        translation=s.translation)
                 for s in segs
             ]
+            # Punctuation restoration (zh only; en skipped; ImportError graceful)
+            from .punctuate import punctuate_segments
+            segs = punctuate_segments(segs, info_lang or "")
 
         return TranscriptionResult(language=info_lang or "", segments=segs)
 

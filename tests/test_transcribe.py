@@ -46,8 +46,8 @@ def test_faster_whisper_backend_converts_traditional_to_simplified(monkeypatch):
 
     result = backend.transcribe("/dev/null")
     texts = [s.text for s in result.segments]
-    assert "对生物医药行业有所关注的朋友" in texts
-    assert "从2025年开始" in texts
+    assert "对生物医药行业有所关注的朋友" in texts or "对生物医药行业有所关注的朋友。" in texts
+    assert "从2025年开始" in texts or "从2025年开始。" in texts
     assert not any("對" in t or "從" in t for t in texts)
 
 
