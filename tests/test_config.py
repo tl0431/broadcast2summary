@@ -229,3 +229,56 @@ def test_transcribe_config_env_overrides(tmp_path):
     assert cfg.transcribe.parallelism == 3
     assert cfg.transcribe.batch_size == 4
     assert cfg.transcribe.min_avail_gb_per_worker == 0.5
+
+
+def test_feed_config_loads_wiki_node_token(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  lark_wiki_space_id: "7639748992342969568"
+feeds:
+  - name: 硅谷101
+    rss_url: https://feeds.fireside.fm/sv101/rss
+    source: generic
+    language: zh
+    enabled: true
+    wiki_node_token: QbrkwfBSTiA76okUQX1cr4wfnwh
+  - name: NoWikiFeed
+    rss_url: https://example.com/rss
+    source: generic
+    language: zh
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    assert cfg.lark_wiki_space_id == "7639748992342969568"
+    f0 = cfg.feeds[0]
+    assert f0.wiki_node_token == "QbrkwfBSTiA76okUQX1cr4wfnwh"
+    f1 = cfg.feeds[1]
+    assert f1.wiki_node_token is None
+
+
+def test_lark_wiki_space_id_env_overrides_yaml(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  lark_wiki_space_id: "yaml-id"
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "LARK_WIKI_SPACE_ID": "env-id",
+        },
+    )
+    assert cfg.lark_wiki_space_id == "env-id"

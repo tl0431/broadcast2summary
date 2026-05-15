@@ -11,6 +11,7 @@ defaults:
     batch_size: 8                # decoder batch size for BatchedInferencePipeline
     convert_traditional: true    # zh-Hant -> zh-Hans via opencc
     min_avail_gb_per_worker: 1.5  # auto-降档 if RAM is tighter
+  lark_wiki_space_id: "7639748992342969568"   # 飞书知识库 space_id (or set LARK_WIKI_SPACE_ID env)
 
 feeds:
   # Replace these with real feeds.
@@ -19,3 +20,4 @@ feeds:
     source: xiaoyuzhou
     language: zh
     enabled: true
+    wiki_node_token: <show subnode token>     # 该节目在 wiki 里的子节点 token;留空则用 lark_wiki_root_token 兜底
