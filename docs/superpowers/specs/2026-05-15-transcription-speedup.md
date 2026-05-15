@@ -284,3 +284,138 @@ env 覆盖:
 - **opencc 误转**:个别词组(如人名"張三"→"张三")无害,极端情况关 `convert_traditional: false`
 - **psutil 不存在**:try-import 容错,退化为不预检 / watchdog no-op
 - **macOS spawn 启动慢**:N=1 串行场景不触发 ProcessPoolExecutor,无影响;N≥2 时启动开销 ~30s/worker,被多期摊销
+
+---
+
+## 9. 完整转写排版(2026-05-15 实测后追加)
+
+**问题:** v0.2 转写已能跑通,但生成的本地 markdown「## 完整转写」段把 1500+ 个 segment 的 `text` 直接 `"".join()` 成一个无标点、无换行的怪物字符串(50+ 分钟音频拼出 2 万字单行),完全不可读。
+
+**修法:** 改 `src/broadcast2summary/output_local.py` 的 `render_markdown()`:
+
+- 把 `transcript: str` 入参换成 `segments: list[Segment]`(从`TranscriptionResult.segments` 直接传入)
+- 不再使用 ``` ``` ``` ``` 代码块包裹 — 改用普通段落
+- 每个 segment **占一行**,前缀带 `[HH:MM:SS]` 时间戳,例:`[00:01:25] 大家好,我是雅贤`
+- 每 N=10 个 segment 之间**插一空行**,便于视觉分段(N 写死,不入配置)
+
+**调用链改动:** `pipeline.py` 调 `write_local_markdown` 时,把 `transcript=transcript_full` 改成 `segments=transcription.segments`(`TranscriptionResult` 里就有)。其它字段不变。
+
+**测试:** 改 `test_output_local.py`:用一个 25 segments 的 fixture transcription,assert 输出的 markdown 含 `[00:00:00]`、`[00:00:05]` 等时间戳前缀,assert ` ``` ` 不在转写段(老代码块语法消失),assert 至少出现 2 个连续空行(分段效果)。
+
+**不影响:** TL;DR / 核心要点 / 章节笔记 等摘要部分仍由 DeepSeek 生成,排版不变。
+
+## 10. 飞书 Wiki 写入路径修正(2026-05-15 实测后追加)
+
+**问题:** v0.2 实测时,`output_wiki.py` 的 `lark-cli wiki ensure-node` 和 `lark-cli wiki create-doc --markdown-file --parent-node-token` 都不存在 — 报 `unknown flag: --parent-node-token`。当前安装的 `lark-cli` 在 `wiki` 命名空间下只有 `wiki spaces get_node`(read-only)。
+
+**正确入口:** `lark-cli docs +create` 直接支持把新 doc 挂到 wiki 节点下:
+
+```bash
+lark-cli docs +create \
+  --wiki-space <space_id> \
+  --wiki-node <show_node_token> \
+  --title "<date> <episode_title>" \
+  --markdown "<doc_body>"
+```
+
+返回的 `data.url` / `data.token` 用作 IM 推送的链接和 state.processed.output_wiki_token 字段。
+
+**节目分组结构(用户偏好,不改):** 每个订阅源在飞书知识库根节点下手动建一个**子节点**(空 docx),每期单独的 doc 通过 `--wiki-node` 挂到对应子节点下。所以 spec §5.6(IM/Wiki output)的"按 show 建子节点"需求由用户人工完成,程序不再尝试 `wiki ensure-node`(那是不存在的命令)。
+
+**FeedConfig 扩展:** `src/broadcast2summary/config.py` 的 `FeedConfig` 加可选字段:
+
+```python
+@dataclass(frozen=True)
+class FeedConfig:
+    name: str
+    rss_url: str
+    source: Source
+    language: Language
+    enabled: bool = True
+    wiki_node_token: str | None = None   # NEW: feed 级 wiki 子节点 token
+```
+
+`AppConfig` 加全局字段 `lark_wiki_space_id: str | None`(从 `LARK_WIKI_SPACE_ID` env 或yaml `defaults.lark_wiki_space_id` 读取),与原有 `lark_wiki_root_token`(根节点)并存:
+- 若 feed 配了 `wiki_node_token` → 用它(推荐路径)
+- 否则 fallback 到根节点 `lark_wiki_root_token`(降级:全部期数堆在根目录,不分节目)
+- 如果 `lark_wiki_space_id` 没配 → 跳过 wiki 推送(只写本地 + IM)
+
+**`output_wiki.py` 重写要点:**
+
+```python
+def push_summary_to_wiki(
+    *,
+    lark: LarkClient,
+    space_id: str,
+    target_node_token: str,
+    title: str,
+    markdown_body: str,
+) -> WikiResult:
+    args = [
+        "docs", "+create",
+        "--wiki-space", space_id,
+        "--wiki-node", target_node_token,
+        "--title", title,
+        "--markdown", markdown_body,
+    ]
+    raw = lark.run(args)
+    data = json.loads(raw)["data"]
+    return WikiResult(doc_token=data.get("token", ""), url=data.get("url", ""))
+```
+
+(注:`docs +create` 输出字段名以实测为准,实施时 `lark-cli docs +create --dry-run` 探查 schema。)
+
+**`output_im.py` 改动:** 不变(`wiki_doc_url` 还是从 `WikiResult.url` 取)。
+
+**调用方(pipeline.py):**
+
+```python
+if deps.lark and deps.wiki_space_id and ep.wiki_node_token:
+    wiki_result = push_summary_to_wiki(
+        lark=deps.lark,
+        space_id=deps.wiki_space_id,
+        target_node_token=ep.wiki_node_token,
+        title=f"{ep.pub_date[:10]} {ep.title}",
+        markdown_body=render_markdown(...),
+    )
+```
+
+`Episode` dataclass 加 `wiki_node_token: str | None = None`,在 `runner._fetch_feed_xml` → `parse_feed` → `Episode` 构造时由 `FeedConfig.wiki_node_token` 注入。
+
+**测试:** 重写 `test_output_wiki.py` 的 1 个测试用例:用 FakeLark 验证 `docs +create` 命令格式正确(参数顺序 / `--wiki-space` / `--wiki-node` 都到位),不再 mock 旧的 `wiki ensure-node` / `wiki create-doc` 二次调用。
+
+## 11. 配置示例与 .env.example 更新(2026-05-15 追加)
+
+**`config/feeds.yaml.example`** 加全局 + per-feed 字段示例:
+
+```yaml
+defaults:
+  recent_n: 5
+  language_hint: zh
+  quality_l3_enabled: true
+  paths:
+    archive_root: ~/Knowledge/broadcast/archive
+    state_dir: ~/Knowledge/broadcast/state
+    log_dir: ~/Knowledge/broadcast/logs
+  transcribe:
+    parallelism: 1
+    batch_size: 8
+    convert_traditional: true
+    min_avail_gb_per_worker: 1.5
+  lark_wiki_space_id: "<your space_id, e.g. 7639748992342969568>"
+
+feeds:
+  - name: <Show Name>
+    rss_url: https://example.com/rss
+    source: xiaoyuzhou
+    language: zh
+    enabled: true
+    wiki_node_token: <show subnode token>   # 飞书知识库该节目子节点 token;留空则用 lark_wiki_root_token 兜底
+```
+
+**`config/.env.example`** 加 `LARK_WIKI_SPACE_ID=<id>`(env 优先级覆盖 yaml)。`LARK_WIKI_ROOT_TOKEN` 保留(现状),作为 feed 级 token 缺失时的兜底。
+
+---
+
+**Spec → Plan 映射(更新):** §9 → Task 10;§10 → Task 11 + Task 12;§11 → 拆到 Task 11 的 yaml.example 部分。
+

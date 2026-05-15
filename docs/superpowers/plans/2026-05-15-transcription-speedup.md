@@ -1227,7 +1227,720 @@ git commit -m "docs: add performance & memory safety section for v0.2 transcript
 
 ---
 
-## Spec → Plan Coverage Map
+## Task 10: Markdown Transcript Layout (per-segment + timestamps)
+
+**Files:**
+- Modify: `src/broadcast2summary/output_local.py`
+- Modify: `src/broadcast2summary/pipeline.py`
+- Modify: `tests/test_output_local.py`
+
+> **Goal:** Replace the unreadable single-line transcript dump with per-segment lines prefixed by `[HH:MM:SS]` timestamps, separated into visual blocks every 10 segments.
+
+- [ ] **Step 1: Update the failing test**
+
+Open `tests/test_output_local.py`. Replace the existing `test_writes_markdown_with_safe_filename` body (or add a sibling test) with one that uses a 25-segment fixture transcription and asserts the new layout. Add this test:
+
+```python
+def test_writes_markdown_with_segment_timestamps(tmp_path: Path):
+    from broadcast2summary.transcribe import Segment, TranscriptionResult
+    from broadcast2summary.output_local import write_local_markdown
+
+    segments = [
+        Segment(start=float(i * 5), end=float(i * 5 + 5), text=f"句子{i}")
+        for i in range(25)
+    ]
+    summary = {
+        "tldr": "TLDR 内容。",
+        "key_points": ["要点 1"],
+        "quotes": [],
+        "resources": [],
+        "chapters": [
+            {"ts_start": "00:00:00", "ts_end": "00:01:00",
+             "title": "开场", "summary": "介绍。"},
+        ],
+        "guests": [],
+        "actionable_items": [],
+    }
+    out = write_local_markdown(
+        archive_root=tmp_path,
+        show_name="测试节目",
+        episode_title="测试期",
+        pub_date="2026-05-15T10:00:00Z",
+        summary=summary,
+        segments=segments,
+    )
+    text = out.read_text(encoding="utf-8")
+    # Each segment gets its own line with HH:MM:SS prefix
+    assert "[00:00:00] 句子0" in text
+    assert "[00:00:05] 句子1" in text
+    assert "[00:01:00] 句子12" in text
+    assert "[00:02:00] 句子24" in text
+    # No code-block fence around the transcript section
+    transcript_section = text.split("## 完整转写", 1)[1]
+    assert "```" not in transcript_section
+    # Visual segmentation: at least one blank line between every 10 segments
+    # 25 segs → 2 blank-line separators (after 10 and after 20)
+    blocks = transcript_section.strip().split("\n\n")
+    # blocks[0] is metadata (empty), then segment groups
+    seg_blocks = [b for b in blocks if "[00:" in b]
+    assert len(seg_blocks) >= 3  # roughly 3 groups of ~10 lines
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `.venv/bin/pytest tests/test_output_local.py::test_writes_markdown_with_segment_timestamps -v`
+Expected: FAIL — `write_local_markdown()` does not accept `segments` kwarg.
+
+- [ ] **Step 3: Modify `src/broadcast2summary/output_local.py`**
+
+Find `write_local_markdown` and `render_markdown`. Update both to accept `segments` instead of (or in addition to, with backward-compat) `transcript`. Replace:
+
+```python
+def write_local_markdown(
+    *,
+    archive_root: Path,
+    show_name: str,
+    episode_title: str,
+    pub_date: str,
+    summary: dict,
+    segments,                       # NEW: list[Segment]
+) -> Path:
+    show_dir = archive_root / _safe_filename(show_name)
+    show_dir.mkdir(parents=True, exist_ok=True)
+    date_part = pub_date[:10]
+    filename = f"{date_part}-{_safe_filename(episode_title)}.md"
+    out = show_dir / filename
+    out.write_text(
+        render_markdown(show_name, episode_title, pub_date, summary, segments),
+        encoding="utf-8",
+    )
+    return out
+
+
+def render_markdown(show_name: str, episode_title: str, pub_date: str,
+                    summary: dict, segments) -> str:
+    lines: list[str] = []
+    lines.append(f"# {episode_title}")
+    lines.append("")
+    lines.append(f"- **节目**: {show_name}")
+    lines.append(f"- **发布**: {pub_date}")
+    if summary.get("guests"):
+        lines.append(f"- **嘉宾**: {', '.join(summary['guests'])}")
+    lines.append("")
+    lines.append("## TL;DR")
+    lines.append(summary.get("tldr", ""))
+    lines.append("")
+    lines.append("## 核心要点")
+    for p in summary.get("key_points", []):
+        lines.append(f"- {p}")
+    lines.append("")
+    if summary.get("quotes"):
+        lines.append("## 金句")
+        for q in summary["quotes"]:
+            lines.append(f"> {q}")
+        lines.append("")
+    if summary.get("resources"):
+        lines.append("## 提到的资源")
+        for r in summary["resources"]:
+            url = f" — {r['url']}" if r.get("url") else ""
+            lines.append(f"- [{r.get('type', 'resource')}] {r.get('title', '')}{url}")
+        lines.append("")
+    lines.append("## 章节笔记")
+    for c in summary.get("chapters", []):
+        lines.append(f"### {c.get('ts_start', '')}–{c.get('ts_end', '')} {c.get('title', '')}")
+        lines.append(c.get("summary", ""))
+        lines.append("")
+    if summary.get("actionable_items"):
+        lines.append("## 可执行建议")
+        for a in summary["actionable_items"]:
+            lines.append(f"- {a}")
+        lines.append("")
+    lines.append("## 完整转写")
+    lines.append("")
+    for i, seg in enumerate(segments):
+        ts = _fmt_hms(seg.start)
+        text = seg.text.strip()
+        lines.append(f"[{ts}] {text}")
+        if (i + 1) % 10 == 0 and i + 1 < len(segments):
+            lines.append("")
+    return "\n".join(lines)
+
+
+def _fmt_hms(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+```
+
+(`_safe_filename` and `_UNSAFE` regex stay as they are.)
+
+- [ ] **Step 4: Update `src/broadcast2summary/pipeline.py` caller**
+
+Find the `write_local_markdown(...)` call inside `process_episode`. Replace `transcript=transcript_full` with `segments=transcription.segments`:
+
+```python
+local_path = write_local_markdown(
+    archive_root=deps.archive_root,
+    show_name=ep.feed_name,
+    episode_title=ep.title,
+    pub_date=ep.pub_date,
+    summary=summary.parsed,
+    segments=transcription.segments,
+)
+```
+
+`transcript_full` is still used elsewhere in `process_episode` (for quality check); keep it.
+
+- [ ] **Step 5: Update other test calls of `write_local_markdown`**
+
+Find any other test in `tests/` that calls `write_local_markdown` (e.g. older tests in `test_output_local.py`, `test_pipeline.py`). Replace `transcript="..."` arg with `segments=[Segment(start=0.0, end=5.0, text="...")]` so legacy tests still pass.
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `.venv/bin/pytest tests/test_output_local.py tests/test_pipeline.py tests/test_e2e_smoke.py -v`
+Expected: all pass.
+
+Run full: `.venv/bin/pytest -q`
+Expected: all pass (was 75; +1 new = 76).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/broadcast2summary/output_local.py src/broadcast2summary/pipeline.py tests/test_output_local.py tests/test_pipeline.py tests/test_e2e_smoke.py
+git commit -m "feat(output): per-segment transcript with [HH:MM:SS] timestamps"
+```
+
+---
+
+## Task 11: FeedConfig.wiki_node_token + AppConfig.lark_wiki_space_id
+
+**Files:**
+- Modify: `src/broadcast2summary/config.py`
+- Modify: `tests/test_config.py`
+- Modify: `config/feeds.yaml.example`
+- Modify: `config/.env.example`
+
+> **Goal:** Allow per-feed wiki node tokens (so each show pubs land under its own subnode) plus a global `LARK_WIKI_SPACE_ID`. Existing `LARK_WIKI_ROOT_TOKEN` becomes a fallback when a feed has no `wiki_node_token`.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `tests/test_config.py`:
+
+```python
+def test_feed_config_loads_wiki_node_token(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  lark_wiki_space_id: "7639748992342969568"
+feeds:
+  - name: 硅谷101
+    rss_url: https://feeds.fireside.fm/sv101/rss
+    source: generic
+    language: zh
+    enabled: true
+    wiki_node_token: QbrkwfBSTiA76okUQX1cr4wfnwh
+  - name: NoWikiFeed
+    rss_url: https://example.com/rss
+    source: generic
+    language: zh
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    assert cfg.lark_wiki_space_id == "7639748992342969568"
+    f0 = cfg.feeds[0]
+    assert f0.wiki_node_token == "QbrkwfBSTiA76okUQX1cr4wfnwh"
+    f1 = cfg.feeds[1]
+    assert f1.wiki_node_token is None
+
+
+def test_lark_wiki_space_id_env_overrides_yaml(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  lark_wiki_space_id: "yaml-id"
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "LARK_WIKI_SPACE_ID": "env-id",
+        },
+    )
+    assert cfg.lark_wiki_space_id == "env-id"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `.venv/bin/pytest tests/test_config.py -v -k "wiki_node_token or wiki_space_id"`
+Expected: FAIL — fields don't exist on `FeedConfig` / `AppConfig` yet.
+
+- [ ] **Step 3: Modify `src/broadcast2summary/config.py`**
+
+(a) Add `wiki_node_token` to `FeedConfig`:
+
+```python
+@dataclass(frozen=True)
+class FeedConfig:
+    name: str
+    rss_url: str
+    source: Source
+    language: Language
+    enabled: bool = True
+    wiki_node_token: str | None = None
+```
+
+(b) Add `lark_wiki_space_id: str | None` field to `AppConfig` (just before `lark_im_target_open_id`):
+
+```python
+@dataclass(frozen=True)
+class AppConfig:
+    defaults: Defaults
+    paths: Paths
+    transcribe: TranscribeConfig
+    feeds: list[FeedConfig]
+    deepseek_api_key: str
+    anthropic_auth_token: str
+    anthropic_base_url: str | None
+    lark_wiki_space_id: str | None
+    lark_im_target_open_id: str | None
+    lark_wiki_root_token: str | None
+    # methods unchanged
+```
+
+(c) In the `load_config` body, where feeds are constructed, propagate `wiki_node_token`:
+
+```python
+    feeds: list[FeedConfig] = []
+    for f in feeds_raw:
+        feeds.append(
+            FeedConfig(
+                name=f["name"],
+                rss_url=f["rss_url"],
+                source=f.get("source", "generic"),
+                language=f.get("language", defaults.language_hint),
+                enabled=bool(f.get("enabled", True)),
+                wiki_node_token=f.get("wiki_node_token"),
+            )
+        )
+```
+
+(d) Read `lark_wiki_space_id` (env > yaml > None):
+
+```python
+    lark_wiki_space_id = (
+        env.get("LARK_WIKI_SPACE_ID")
+        or defaults_raw.get("lark_wiki_space_id")
+        or None
+    )
+```
+
+(e) Add `lark_wiki_space_id=lark_wiki_space_id,` to the `return AppConfig(...)` call (next to `lark_wiki_root_token=...`).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `.venv/bin/pytest tests/test_config.py -v`
+Expected: all config tests pass (existing + 2 new).
+
+Run full: `.venv/bin/pytest -q`
+Expected: all pass (was 76 after Task 10; +2 new = 78).
+
+- [ ] **Step 5: Update `config/feeds.yaml.example`**
+
+Add `lark_wiki_space_id` under `defaults:` and a `wiki_node_token` line in the example feed:
+
+```yaml
+defaults:
+  recent_n: 5
+  language_hint: zh
+  quality_l3_enabled: true
+  paths:
+    archive_root: ~/Knowledge/broadcast/archive
+    state_dir: ~/Knowledge/broadcast/state
+    log_dir: ~/Knowledge/broadcast/logs
+  transcribe:
+    parallelism: 1
+    batch_size: 8
+    convert_traditional: true
+    min_avail_gb_per_worker: 1.5
+  lark_wiki_space_id: "7639748992342969568"   # 飞书知识库 space_id
+
+feeds:
+  - name: Example Show
+    rss_url: https://example.com/rss
+    source: xiaoyuzhou
+    language: zh
+    enabled: true
+    wiki_node_token: <show subnode token>     # 该节目在 wiki 里的子节点 token;留空则用 root 兜底
+```
+
+- [ ] **Step 6: Update `config/.env.example`**
+
+Append:
+
+```
+# Lark wiki space id for episode docs (overrides yaml when set)
+LARK_WIKI_SPACE_ID=
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/broadcast2summary/config.py tests/test_config.py config/feeds.yaml.example config/.env.example
+git commit -m "feat(config): per-feed wiki_node_token + global lark_wiki_space_id"
+```
+
+---
+
+## Task 12: Rewrite output_wiki for `lark-cli docs +create`
+
+**Files:**
+- Modify: `src/broadcast2summary/output_wiki.py`
+- Modify: `src/broadcast2summary/pipeline.py`
+- Modify: `src/broadcast2summary/rss.py`
+- Modify: `src/broadcast2summary/runner.py`
+- Modify: `tests/test_output_wiki.py`
+- Modify: `tests/test_pipeline.py`
+
+> **Goal:** Replace the broken `wiki ensure-node` + `wiki create-doc` two-step flow with a single `lark-cli docs +create --wiki-space ... --wiki-node ...` call. Plumb `wiki_node_token` from FeedConfig down through Episode → PipelineDeps → output_wiki.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace `tests/test_output_wiki.py` body with:
+
+```python
+import json
+from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult
+
+
+class FakeLark:
+    def __init__(self, returns: list[str]):
+        self.returns = returns
+        self.calls: list[list[str]] = []
+
+    def run(self, args, **kwargs):
+        self.calls.append(args)
+        return self.returns.pop(0)
+
+
+def test_push_summary_uses_docs_create_with_wiki_node():
+    fake = FakeLark(returns=[
+        json.dumps({
+            "data": {
+                "token": "doc_token_xyz",
+                "url": "https://lark.feishu.cn/docx/doc_token_xyz",
+            }
+        }),
+    ])
+    body = "# 测试\n\n[00:00:00] 句子1\n"
+    result = push_summary_to_wiki(
+        lark=fake,
+        space_id="7639748992342969568",
+        target_node_token="QbrkwfBSTiA76okUQX1cr4wfnwh",
+        title="2026-05-13 测试期",
+        markdown_body=body,
+    )
+    assert isinstance(result, WikiResult)
+    assert result.doc_token == "doc_token_xyz"
+    assert result.url == "https://lark.feishu.cn/docx/doc_token_xyz"
+    # Exactly 1 lark-cli invocation now (was 2 in the old design)
+    assert len(fake.calls) == 1
+    args = fake.calls[0]
+    assert args[:2] == ["docs", "+create"]
+    assert "--wiki-space" in args
+    sp_idx = args.index("--wiki-space")
+    assert args[sp_idx + 1] == "7639748992342969568"
+    assert "--wiki-node" in args
+    nd_idx = args.index("--wiki-node")
+    assert args[nd_idx + 1] == "QbrkwfBSTiA76okUQX1cr4wfnwh"
+    assert "--title" in args
+    t_idx = args.index("--title")
+    assert args[t_idx + 1] == "2026-05-13 测试期"
+    assert "--markdown" in args
+    md_idx = args.index("--markdown")
+    assert args[md_idx + 1] == body
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `.venv/bin/pytest tests/test_output_wiki.py -v`
+Expected: FAIL — `push_summary_to_wiki` signature still requires `root_token` / `show_name` / etc.
+
+- [ ] **Step 3: Rewrite `src/broadcast2summary/output_wiki.py`**
+
+Replace the entire file:
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+import json
+from .lark_client import LarkClient
+
+
+@dataclass(frozen=True)
+class WikiResult:
+    doc_token: str
+    url: str
+
+
+def push_summary_to_wiki(
+    *,
+    lark: LarkClient,
+    space_id: str,
+    target_node_token: str,
+    title: str,
+    markdown_body: str,
+) -> WikiResult:
+    """Create a Lark docx mounted under <space_id>/<target_node_token>.
+
+    Uses `lark-cli docs +create --wiki-space ... --wiki-node ...` (single shot,
+    no separate ensure-node step). Returns the created doc's token + URL.
+    """
+    raw = lark.run([
+        "docs", "+create",
+        "--wiki-space", space_id,
+        "--wiki-node", target_node_token,
+        "--title", title,
+        "--markdown", markdown_body,
+    ])
+    payload = json.loads(raw)
+    data = payload.get("data") or {}
+    return WikiResult(
+        doc_token=data.get("token", ""),
+        url=data.get("url", ""),
+    )
+```
+
+- [ ] **Step 4: Add `wiki_node_token` to `Episode` dataclass**
+
+In `src/broadcast2summary/rss.py`, add the field:
+
+```python
+@dataclass(frozen=True)
+class Episode:
+    guid: str
+    title: str
+    pub_date: str
+    audio_url: str
+    duration_seconds: int
+    feed_name: str = ""
+    wiki_node_token: str | None = None
+```
+
+(Keep the field at the end so existing positional-arg callers in tests don't break.)
+
+- [ ] **Step 5: Inject `wiki_node_token` in runner.py**
+
+In `cmd_run`, after parsing each feed's episodes via `parse_feed`, attach the feed's `wiki_node_token` to each episode. Modify the loop:
+
+```python
+    pending_by_feed: dict[str, list[Episode]] = {}
+    for f in feeds:
+        xml = _fetch_feed_xml(f.rss_url)
+        episodes = parse_feed(xml, feed_name=f.name)
+        # Attach feed-level wiki_node_token to each episode
+        episodes = [
+            Episode(
+                guid=e.guid, title=e.title, pub_date=e.pub_date,
+                audio_url=e.audio_url, duration_seconds=e.duration_seconds,
+                feed_name=e.feed_name, wiki_node_token=f.wiki_node_token,
+            )
+            for e in episodes
+        ]
+        processed = _already_processed(state, episodes)
+        new = filter_new_episodes(
+            episodes, already_processed=processed, recent_n=cfg.defaults.recent_n
+        )
+        pending_by_feed[f.name] = new
+        stats.episodes_new += len(new)
+```
+
+Same change in `cmd_backfill`:
+
+```python
+    xml = _fetch_feed_xml(feed.rss_url)
+    episodes = parse_feed(xml, feed_name=feed.name)
+    episodes = [
+        Episode(
+            guid=e.guid, title=e.title, pub_date=e.pub_date,
+            audio_url=e.audio_url, duration_seconds=e.duration_seconds,
+            feed_name=e.feed_name, wiki_node_token=feed.wiki_node_token,
+        )
+        for e in episodes
+    ]
+    targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
+```
+
+`cmd_retry_failed` reconstructs Episode from FailedRecord; pass `wiki_node_token=feed.wiki_node_token` (look up from `cfg.find_feed(r.feed_name)`):
+
+```python
+    for r in rows:
+        feed = cfg.find_feed(r.feed_name)
+        if feed is None:
+            continue
+        ep = Episode(
+            guid=r.guid, title=r.title, pub_date="",
+            audio_url=r.audio_url, duration_seconds=0,
+            feed_name=r.feed_name,
+            wiki_node_token=feed.wiki_node_token,
+        )
+        process_episode(ep, deps=deps)
+```
+
+- [ ] **Step 6: Update `PipelineDeps` and `pipeline.py`**
+
+In `src/broadcast2summary/pipeline.py`, add `wiki_space_id: str | None` to `PipelineDeps`:
+
+```python
+@dataclass
+class PipelineDeps:
+    state: State
+    transcribe_backend: TranscribeBackend
+    archive_root: Path
+    audio_dir: Path
+    failed_dir: Path
+    im_target: str | None
+    wiki_space_id: str | None       # NEW
+    wiki_root: str | None           # legacy fallback root node token
+    download_fn: Callable[[str, Path], None]
+    l3_enabled: bool
+    lark: LarkClient | None = None
+    deepseek: LLMClient | None = None
+    claude: LLMClient | None = None
+    summarize_stubs: SummarizeStubs | None = None
+```
+
+Update the wiki push branch in `process_episode`:
+
+```python
+    wiki_token, wiki_url = None, None
+    target_node = ep.wiki_node_token or deps.wiki_root
+    if deps.lark and deps.wiki_space_id and target_node:
+        wiki_result = push_summary_to_wiki(
+            lark=deps.lark,
+            space_id=deps.wiki_space_id,
+            target_node_token=target_node,
+            title=f"{ep.pub_date[:10]} {ep.title}",
+            markdown_body=render_markdown(
+                ep.feed_name, ep.title, ep.pub_date,
+                summary.parsed, transcription.segments,
+            ),
+        )
+        wiki_token = wiki_result.doc_token
+        wiki_url = wiki_result.url
+```
+
+(Note: `render_markdown` now takes `segments` per Task 10 — match.)
+
+- [ ] **Step 7: Update `_build_deps` and `_serialize_deps_args` in runner.py**
+
+`_build_deps`:
+
+```python
+def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
+                *, cheap: bool = False) -> PipelineDeps:
+    return PipelineDeps(
+        state=state,
+        transcribe_backend=FasterWhisperBackend(
+            cheap=cheap,
+            batch_size=cfg.transcribe.batch_size,
+            convert_traditional=cfg.transcribe.convert_traditional,
+        ),
+        archive_root=paths.archive_root,
+        audio_dir=state_dir / "audio",
+        failed_dir=state_dir / "failed",
+        im_target=cfg.lark_im_target_open_id,
+        wiki_space_id=cfg.lark_wiki_space_id,
+        wiki_root=cfg.lark_wiki_root_token,
+        download_fn=download_audio,
+        l3_enabled=cfg.defaults.quality_l3_enabled,
+        lark=LarkClient(),
+        deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
+        claude=ClaudeClient(
+            auth_token=cfg.anthropic_auth_token,
+            base_url=cfg.anthropic_base_url,
+            cheap=cheap,
+        ),
+    )
+```
+
+`_serialize_deps_args`:
+
+```python
+def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
+    return {
+        "deepseek_api_key": cfg.deepseek_api_key,
+        "anthropic_auth_token": cfg.anthropic_auth_token,
+        "anthropic_base_url": cfg.anthropic_base_url,
+        "im_target": cfg.lark_im_target_open_id,
+        "wiki_space_id": cfg.lark_wiki_space_id,
+        "wiki_root": cfg.lark_wiki_root_token,
+        "archive_root": str(cfg.paths.archive_root),
+        "state_dir": str(cfg.paths.state_dir),
+        "l3_enabled": cfg.defaults.quality_l3_enabled,
+        "batch_size": cfg.transcribe.batch_size,
+        "convert_traditional": cfg.transcribe.convert_traditional,
+        "cheap": cheap,
+    }
+```
+
+`_run_in_worker`: build PipelineDeps with `wiki_space_id=deps_args["wiki_space_id"]` (and rename `wiki_root=deps_args["wiki_root"]` if not already present).
+
+- [ ] **Step 8: Update existing pipeline tests**
+
+`tests/test_pipeline.py` and `tests/test_e2e_smoke.py` construct `PipelineDeps` directly. Add `wiki_space_id="wikspace_test"` to both fixture constructions, OR set `wiki_space_id=None` if the test path didn't exercise wiki.
+
+For `test_process_episode_full_success` in `test_pipeline.py`, the FakeLark mock returned `wiki ensure-node` and `wiki create-doc` JSON. Replace with a single mock for `docs +create`:
+
+```python
+class FakeLark:
+    def __init__(self): self.calls = []
+    def run(self, args, **kw):
+        self.calls.append(args)
+        if args[:2] == ["im", "send"]:
+            return ""
+        if args[:2] == ["docs", "+create"]:
+            return json.dumps({"data": {"token": "doc_xyz",
+                                         "url": "https://lark/doc/xyz"}})
+        return ""
+```
+
+Make sure `Episode(...)` ctor calls in tests pass `wiki_node_token="<test-token>"` so the wiki branch is exercised. Update assertions:
+
+```python
+cmds = [c[:2] for c in deps.lark.calls]
+assert ["docs", "+create"] in cmds
+assert ["im", "send"] in cmds
+```
+
+(Remove old assertions for `["wiki", "ensure-node"]` and `["wiki", "create-doc"]`.)
+
+Same kind of update in `tests/test_e2e_smoke.py`.
+
+- [ ] **Step 9: Run all tests**
+
+Run: `.venv/bin/pytest -q`
+Expected: all pass (was 78 after Task 11; net change ≈ +1 test from Task 12 → 79).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/broadcast2summary/output_wiki.py src/broadcast2summary/pipeline.py src/broadcast2summary/rss.py src/broadcast2summary/runner.py tests/test_output_wiki.py tests/test_pipeline.py tests/test_e2e_smoke.py
+git commit -m "feat(output-wiki): rewrite to lark-cli docs +create + wiki_node_token plumbing"
+```
+
+---
+
+
 
 | Spec section | Implemented in |
 |---|---|
