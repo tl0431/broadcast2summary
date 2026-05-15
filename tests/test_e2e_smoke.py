@@ -143,11 +143,11 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
         def __init__(self): self.calls = []
         def run(self, args, **kw):
             self.calls.append(args)
-            if args[:2] == ["wiki", "ensure-node"]:
-                return json.dumps({"data": {"node": {"node_token": "node_show"}}})
-            if args[:2] == ["wiki", "create-doc"]:
-                return json.dumps({"data": {"node": {"node_token": "node_doc",
-                                                      "url": "https://lark/doc"}}})
+            if args[:2] == ["im", "send"]:
+                return ""
+            if args[:2] == ["docs", "+create"]:
+                return json.dumps({"data": {"token": "doc_xyz",
+                                             "url": "https://lark/doc/xyz"}})
             return ""
 
     state = State(tmp_path / "s.db")
@@ -169,13 +169,16 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
         archive_root=tmp_path / "archive",
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
-        im_target="ou_1", wiki_root="wikcn_root",
+        im_target="ou_1",
+        wiki_space_id="wikspace_test",
+        wiki_root="wikcn_root",
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, lark=FakeLark(),
+        l3_enabled=False,
+        lark=FakeLark(),
     )
     ep = Episode(guid="g1", title="工程化", pub_date="2026-05-12T10:00:00Z",
                  audio_url="https://x/a.mp3", duration_seconds=3600,
-                 feed_name="商业 wanderer")
+                 feed_name="商业 wanderer", wiki_node_token="QbrkwfBSTiA76okUQX1cr4wfnwh")
     result = process_episode(ep, deps=deps)
     assert result.success is True
 
@@ -189,8 +192,7 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
     # 2. wiki + 3. IM both called
     lark_calls = deps.lark.calls
     cmds = [c[:2] for c in lark_calls]
-    assert ["wiki", "ensure-node"] in cmds
-    assert ["wiki", "create-doc"] in cmds
+    assert ["docs", "+create"] in cmds
     assert ["im", "send"] in cmds
 
     # 4. state recorded

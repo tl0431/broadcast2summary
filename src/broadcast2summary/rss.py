@@ -13,6 +13,7 @@ class Episode:
     audio_url: str
     duration_seconds: int  # 0 if unknown
     feed_name: str = ""    # filled by caller
+    wiki_node_token: str | None = None
 
 
 def parse_feed(rss_xml: str, *, feed_name: str = "") -> list[Episode]:

@@ -151,6 +151,14 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
     for f in feeds:
         xml = _fetch_feed_xml(f.rss_url)
         episodes = parse_feed(xml, feed_name=f.name)
+        episodes = [
+            Episode(
+                guid=e.guid, title=e.title, pub_date=e.pub_date,
+                audio_url=e.audio_url, duration_seconds=e.duration_seconds,
+                feed_name=e.feed_name, wiki_node_token=f.wiki_node_token,
+            )
+            for e in episodes
+        ]
         processed = _already_processed(state, episodes)
         new = filter_new_episodes(
             episodes, already_processed=processed, recent_n=cfg.defaults.recent_n
@@ -241,6 +249,14 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
         return 2
     xml = _fetch_feed_xml(feed.rss_url)
     episodes = parse_feed(xml, feed_name=feed.name)
+    episodes = [
+        Episode(
+            guid=e.guid, title=e.title, pub_date=e.pub_date,
+            audio_url=e.audio_url, duration_seconds=e.duration_seconds,
+            feed_name=e.feed_name, wiki_node_token=feed.wiki_node_token,
+        )
+        for e in episodes
+    ]
     cutoff = since
     targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
     deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=_cheap_from_env(cheap))
@@ -266,6 +282,7 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
         im_target=cfg.lark_im_target_open_id,
+        wiki_space_id=cfg.lark_wiki_space_id,
         wiki_root=cfg.lark_wiki_root_token,
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
@@ -285,6 +302,7 @@ def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
         "anthropic_auth_token": cfg.anthropic_auth_token,
         "anthropic_base_url": cfg.anthropic_base_url,
         "im_target": cfg.lark_im_target_open_id,
+        "wiki_space_id": cfg.lark_wiki_space_id,
         "wiki_root": cfg.lark_wiki_root_token,
         "archive_root": str(cfg.paths.archive_root),
         "state_dir": str(cfg.paths.state_dir),
@@ -320,6 +338,7 @@ def _run_in_worker(ep: Episode, deps_args: dict):
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
         im_target=deps_args["im_target"],
+        wiki_space_id=deps_args["wiki_space_id"],
         wiki_root=deps_args["wiki_root"],
         download_fn=download_audio,
         l3_enabled=bool(deps_args["l3_enabled"]),
@@ -366,7 +385,9 @@ def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
             continue
         ep = Episode(
             guid=r.guid, title=r.title, pub_date="",
-            audio_url=r.audio_url, duration_seconds=0, feed_name=r.feed_name,
+            audio_url=r.audio_url, duration_seconds=0,
+            feed_name=r.feed_name,
+            wiki_node_token=feed.wiki_node_token,
         )
         process_episode(ep, deps=deps)
     return 0

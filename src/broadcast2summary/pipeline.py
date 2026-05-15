@@ -9,7 +9,7 @@ from .rss import Episode
 from .state import State, EpisodeRecord, FailedRecord
 from .transcribe import TranscribeBackend, transcribe_audio
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
-from .output_local import write_local_markdown
+from .output_local import write_local_markdown, render_markdown
 from .output_im import push_summary_to_im
 from .output_wiki import push_summary_to_wiki
 from .lark_client import LarkClient
@@ -23,6 +23,7 @@ class PipelineDeps:
     audio_dir: Path
     failed_dir: Path
     im_target: str | None
+    wiki_space_id: str | None
     wiki_root: str | None
     download_fn: Callable[[str, Path], None]
     l3_enabled: bool
@@ -92,11 +93,17 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
         )
         wiki_token, wiki_url = None, None
-        if deps.lark and deps.wiki_root:
+        target_node = ep.wiki_node_token or deps.wiki_root
+        if deps.lark and deps.wiki_space_id and target_node:
             wiki_result = push_summary_to_wiki(
-                lark=deps.lark, root_token=deps.wiki_root,
-                show_name=ep.feed_name, episode_title=ep.title,
-                pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
+                lark=deps.lark,
+                space_id=deps.wiki_space_id,
+                target_node_token=target_node,
+                title=f"{ep.pub_date[:10]} {ep.title}",
+                markdown_body=render_markdown(
+                    ep.feed_name, ep.title, ep.pub_date,
+                    summary.parsed, transcription.segments,
+                ),
             )
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url

@@ -19,11 +19,9 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
             if args[:2] == ["im", "send"]:
                 captured_im.append(args)
                 return ""
-            if args[:2] == ["wiki", "ensure-node"]:
-                return json.dumps({"data": {"node": {"node_token": "node_show_abc"}}})
-            if args[:2] == ["wiki", "create-doc"]:
-                return json.dumps({"data": {"node": {"node_token": "node_doc_def",
-                                                      "url": "https://lark/doc/def"}}})
+            if args[:2] == ["docs", "+create"]:
+                return json.dumps({"data": {"token": "doc_xyz",
+                                             "url": "https://lark/doc/xyz"}})
             return ""
 
     lark = FakeLark()
@@ -72,6 +70,7 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
         im_target="ou_1",
+        wiki_space_id="wikspace_test",
         wiki_root="wikcn_root",
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
@@ -79,6 +78,7 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
     ep = Episode(
         guid="g1", title="工程化", pub_date="2026-05-12T10:00:00Z",
         audio_url="https://x/a.mp3", duration_seconds=3600, feed_name="商业 wanderer",
+        wiki_node_token="QbrkwfBSTiA76okUQX1cr4wfnwh",
     )
     result = process_episode(ep, deps=deps)
     assert isinstance(result, EpisodeResult)
@@ -88,6 +88,9 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
     # mp3 deleted on success
     assert not (tmp_path / "audio" / "g1.mp3").exists()
     assert captured_im, "IM push should have happened"
+    cmds = [c[:2] for c in lark.calls]
+    assert ["docs", "+create"] in cmds
+    assert ["im", "send"] in cmds
 
 
 def test_process_episode_transcribe_failure_keeps_mp3(tmp_path: Path):
@@ -106,6 +109,7 @@ def test_process_episode_transcribe_failure_keeps_mp3(tmp_path: Path):
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
         im_target=None,
+        wiki_space_id=None,
         wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
