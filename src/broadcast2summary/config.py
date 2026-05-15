@@ -18,6 +18,14 @@ class Paths:
 
 
 @dataclass(frozen=True)
+class TranscribeConfig:
+    parallelism: int = 1
+    batch_size: int = 8
+    convert_traditional: bool = True
+    min_avail_gb_per_worker: float = 1.5
+
+
+@dataclass(frozen=True)
 class Defaults:
     recent_n: int = 5
     language_hint: Language = "zh"
@@ -37,6 +45,7 @@ class FeedConfig:
 class AppConfig:
     defaults: Defaults
     paths: Paths
+    transcribe: TranscribeConfig
     feeds: list[FeedConfig]
     deepseek_api_key: str
     anthropic_auth_token: str
@@ -107,6 +116,42 @@ def load_config(
     ).expanduser()
     paths = Paths(archive_root=archive_root, state_dir=state_dir, log_dir=log_dir)
 
+    transcribe_raw = defaults_raw.get("transcribe") or {}
+
+    def _int_env(name: str, fallback: int) -> int:
+        v = env.get(name)
+        if v is not None:
+            try:
+                return int(v)
+            except ValueError:
+                pass
+        return fallback
+
+    def _float_env(name: str, fallback: float) -> float:
+        v = env.get(name)
+        if v is not None:
+            try:
+                return float(v)
+            except ValueError:
+                pass
+        return fallback
+
+    transcribe = TranscribeConfig(
+        parallelism=_int_env(
+            "B2S_TRANSCRIBE_PARALLELISM",
+            int(transcribe_raw.get("parallelism", 1)),
+        ),
+        batch_size=_int_env(
+            "B2S_TRANSCRIBE_BATCH_SIZE",
+            int(transcribe_raw.get("batch_size", 8)),
+        ),
+        convert_traditional=bool(transcribe_raw.get("convert_traditional", True)),
+        min_avail_gb_per_worker=_float_env(
+            "B2S_TRANSCRIBE_MIN_AVAIL_GB",
+            float(transcribe_raw.get("min_avail_gb_per_worker", 1.5)),
+        ),
+    )
+
     feeds_raw = raw.get("feeds") or []
     feeds: list[FeedConfig] = []
     for f in feeds_raw:
@@ -134,6 +179,7 @@ def load_config(
     return AppConfig(
         defaults=defaults,
         paths=paths,
+        transcribe=transcribe,
         feeds=feeds,
         deepseek_api_key=require("DEEPSEEK_API_KEY"),
         anthropic_auth_token=anthropic_token,

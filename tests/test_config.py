@@ -174,3 +174,58 @@ feeds:
     assert len(cfg.feeds) == 1
     assert cfg.feeds[0].enabled is False
     assert cfg.enabled_feeds() == []
+
+
+def test_transcribe_config_defaults_when_yaml_silent(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    assert cfg.transcribe.parallelism == 1
+    assert cfg.transcribe.batch_size == 8
+    assert cfg.transcribe.convert_traditional is True
+    assert cfg.transcribe.min_avail_gb_per_worker == 1.5
+
+
+def test_transcribe_config_from_yaml(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text(
+        """
+defaults:
+  transcribe:
+    parallelism: 2
+    batch_size: 16
+    convert_traditional: false
+    min_avail_gb_per_worker: 2.0
+feeds: []
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    assert cfg.transcribe.parallelism == 2
+    assert cfg.transcribe.batch_size == 16
+    assert cfg.transcribe.convert_traditional is False
+    assert cfg.transcribe.min_avail_gb_per_worker == 2.0
+
+
+def test_transcribe_config_env_overrides(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "B2S_TRANSCRIBE_PARALLELISM": "3",
+            "B2S_TRANSCRIBE_BATCH_SIZE": "4",
+            "B2S_TRANSCRIBE_MIN_AVAIL_GB": "0.5",
+        },
+    )
+    assert cfg.transcribe.parallelism == 3
+    assert cfg.transcribe.batch_size == 4
+    assert cfg.transcribe.min_avail_gb_per_worker == 0.5

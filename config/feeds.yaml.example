@@ -6,6 +6,11 @@ defaults:
     archive_root: ~/Knowledge/broadcast/archive
     state_dir: ~/Knowledge/broadcast/state
     log_dir: ~/Knowledge/broadcast/logs
+  transcribe:
+    parallelism: 1               # safe default; bump to 2 only when system has free RAM
+    batch_size: 8                # decoder batch size for BatchedInferencePipeline
+    convert_traditional: true    # zh-Hant -> zh-Hans via opencc
+    min_avail_gb_per_worker: 1.5  # auto-降档 if RAM is tighter
 
 feeds:
   # Replace these with real feeds.
