@@ -80,7 +80,7 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
     for i, seg in enumerate(segments):
         ts = _fmt_hms(seg.start)
         lines.append(f"[{ts}] {seg.text.strip()}")
-        if seg.translation:
+        if seg.translation and seg.translation.strip():
             lines.append(f"[译] {seg.translation.strip()}")
         if (i + 1) % 10 == 0 and i + 1 < len(segments):
             lines.append("")
