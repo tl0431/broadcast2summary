@@ -14,6 +14,7 @@ from .output_local import write_local_markdown, render_markdown
 from .output_im import push_summary_to_im
 from .output_wiki import push_summary_to_wiki
 from .lark_client import LarkClient
+from .translate import translate_segments
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,26 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         audio_path.unlink(missing_ok=True)
         return _record_failure(deps, ep, "summarize", e, now, mp3_path=None)
 
+    # ---- translate (en only; failure = skip translation, continue) ----
+    effective_language = transcription.language or ep.language or "zh"
+    if effective_language == "en" and deps.deepseek:
+        try:
+            translated_segments = translate_segments(
+                transcription.segments, deps.deepseek
+            )
+        except Exception:
+            logger.exception("translation failed for %s — continuing without translation",
+                             ep.guid)
+            translated_segments = transcription.segments
+    else:
+        translated_segments = transcription.segments
+
     # ---- local markdown (core artifact — failure = episode failed) ----
     try:
         local_path = write_local_markdown(
             archive_root=deps.archive_root,
             show_name=ep.feed_name, episode_title=ep.title,
-            pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
+            pub_date=ep.pub_date, summary=summary.parsed, segments=translated_segments,
         )
     except Exception as e:
         audio_path.unlink(missing_ok=True)
@@ -110,7 +125,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 title=f"{ep.pub_date[:10]} {ep.title}",
                 markdown_body=render_markdown(
                     ep.feed_name, ep.title, ep.pub_date,
-                    summary.parsed, transcription.segments,
+                    summary.parsed, translated_segments,
                 ),
             )
             wiki_token = wiki_result.doc_token

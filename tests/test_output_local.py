@@ -68,3 +68,25 @@ def test_writes_markdown_with_segment_timestamps(tmp_path):
     blocks = transcript_section.strip().split("\n\n")
     seg_blocks = [b for b in blocks if "[00:" in b]
     assert len(seg_blocks) >= 3
+
+
+def test_render_markdown_bilingual_shows_translation():
+    from broadcast2summary.transcribe import Segment
+    from broadcast2summary.output_local import render_markdown
+
+    segments = [
+        Segment(start=0.0, end=5.0, text="Hello world", translation="你好世界"),
+        Segment(start=5.0, end=10.0, text="This is a test", translation="这是测试"),
+    ]
+    summary = {
+        "tldr": "Test.", "key_points": ["p1"], "quotes": [],
+        "resources": [], "chapters": [
+            {"ts_start": "00:00:00", "ts_end": "00:00:10",
+             "title": "intro", "summary": "intro."}
+        ], "guests": [], "actionable_items": [],
+    }
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    assert "[00:00:00] Hello world" in text
+    assert "[译] 你好世界" in text
+    assert "[00:00:05] This is a test" in text
+    assert "[译] 这是测试" in text
