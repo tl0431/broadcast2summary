@@ -1,5 +1,6 @@
 import json
 from broadcast2summary.output_wiki import push_summary_to_wiki
+from broadcast2summary.transcribe import Segment
 
 
 class FakeLark:
@@ -33,7 +34,7 @@ def test_push_summary_creates_show_node_then_episode_doc(tmp_path):
         lark=fake, root_token="wikcn_root",
         show_name="商业 wanderer", episode_title="工程化",
         pub_date="2026-05-12T10:00:00Z", summary=summary,
-        transcript="[00:00:00] 大家好。",
+        segments=[Segment(start=0.0, end=5.0, text="大家好。")],
     )
     assert result.doc_token == "node_doc_def"
     assert result.url == "https://lark.feishu.cn/doc/def"

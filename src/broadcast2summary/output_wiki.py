@@ -22,10 +22,10 @@ def push_summary_to_wiki(
     episode_title: str,
     pub_date: str,
     summary: dict,
-    transcript: str,
+    segments,
 ) -> WikiResult:
     show_node_token = _ensure_show_node(lark, root_token, show_name)
-    markdown_body = render_markdown(show_name, episode_title, pub_date, summary, transcript)
+    markdown_body = render_markdown(show_name, episode_title, pub_date, summary, segments)
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as f:
         f.write(markdown_body)

@@ -89,14 +89,14 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         local_path = write_local_markdown(
             archive_root=deps.archive_root,
             show_name=ep.feed_name, episode_title=ep.title,
-            pub_date=ep.pub_date, summary=summary.parsed, transcript=transcript_full,
+            pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
         )
         wiki_token, wiki_url = None, None
         if deps.lark and deps.wiki_root:
             wiki_result = push_summary_to_wiki(
                 lark=deps.lark, root_token=deps.wiki_root,
                 show_name=ep.feed_name, episode_title=ep.title,
-                pub_date=ep.pub_date, summary=summary.parsed, transcript=transcript_full,
+                pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
             )
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url

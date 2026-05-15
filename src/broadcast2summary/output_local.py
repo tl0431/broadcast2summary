@@ -11,6 +11,11 @@ def _safe_filename(s: str, *, max_len: int = 80) -> str:
     return cleaned[:max_len] or "untitled"
 
 
+def _fmt_hms(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+
+
 def write_local_markdown(
     *,
     archive_root: Path,
@@ -18,20 +23,22 @@ def write_local_markdown(
     episode_title: str,
     pub_date: str,
     summary: dict,
-    transcript: str,
+    segments,
 ) -> Path:
     show_dir = archive_root / _safe_filename(show_name)
     show_dir.mkdir(parents=True, exist_ok=True)
     date_part = pub_date[:10]
     filename = f"{date_part}-{_safe_filename(episode_title)}.md"
     out = show_dir / filename
-    out.write_text(render_markdown(show_name, episode_title, pub_date, summary, transcript),
-                   encoding="utf-8")
+    out.write_text(
+        render_markdown(show_name, episode_title, pub_date, summary, segments),
+        encoding="utf-8",
+    )
     return out
 
 
 def render_markdown(show_name: str, episode_title: str, pub_date: str,
-                    summary: dict, transcript: str) -> str:
+                    summary: dict, segments) -> str:
     lines: list[str] = []
     lines.append(f"# {episode_title}")
     lines.append("")
@@ -70,7 +77,9 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         lines.append("")
     lines.append("## 完整转写")
     lines.append("")
-    lines.append("```")
-    lines.append(transcript)
-    lines.append("```")
+    for i, seg in enumerate(segments):
+        ts = _fmt_hms(seg.start)
+        lines.append(f"[{ts}] {seg.text.strip()}")
+        if (i + 1) % 10 == 0 and i + 1 < len(segments):
+            lines.append("")
     return "\n".join(lines)
