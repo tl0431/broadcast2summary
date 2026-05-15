@@ -233,8 +233,34 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
     return 0
 
 
-def cmd_fetch_one(url: str) -> int:
-    raise NotImplementedError("see plan §future: URL resolver for xiaoyuzhou/apple")
+def cmd_fetch_one(url: str, *, cheap: bool = False,
+                  title: str | None = None) -> int:
+    import hashlib
+    cfg = _load()
+    state_dir = cfg.paths.state_dir
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state = State(state_dir / "processed.db")
+    state.init_schema()
+
+    guid = hashlib.md5(url.encode()).hexdigest()[:16]
+    ep = Episode(
+        guid=guid,
+        title=title or url.split("/")[-1].split("?")[0],
+        pub_date=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        audio_url=url,
+        duration_seconds=0,
+        feed_name="manual",
+        language="zh",          # Whisper auto-detect will override via transcription.language
+        wiki_node_token=None,   # uses lark_folder_token root fallback
+    )
+    deps = _build_deps(cfg, state, state_dir, cfg.paths,
+                       cheap=_cheap_from_env(cheap))
+    result = process_episode(ep, deps=deps)
+    if result.success:
+        print(f"done: {result.local_path}")
+    else:
+        print(f"failed at {result.failed_stage}: {(result.error or '')[:200]}")
+    return 0 if result.success else 1
 
 
 def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:

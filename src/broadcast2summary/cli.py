@@ -24,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch_one = sub.add_parser("fetch-one", help="Process a single episode by URL")
     fetch_one.add_argument("url")
+    fetch_one.add_argument("--title", default=None,
+                           help="episode title (optional; defaults to filename from URL)")
     fetch_one.add_argument("--cheap", action="store_true")
 
     backfill = sub.add_parser("backfill", help="Pull historical episodes")
@@ -64,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_backfill(args.feed, args.since, cheap=args.cheap)
     if args.cmd == "fetch-one":
         from .runner import cmd_fetch_one
-        return cmd_fetch_one(args.url, cheap=args.cheap)
+        return cmd_fetch_one(args.url, cheap=args.cheap, title=args.title)
     if args.cmd == "list-failed":
         from .runner import cmd_list_failed
         return cmd_list_failed()
