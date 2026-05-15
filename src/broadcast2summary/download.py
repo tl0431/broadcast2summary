@@ -17,6 +17,9 @@ def _client_factory() -> httpx.Client:
 
 def download_audio(url: str, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    # Fast path: dst already fully downloaded from a previous run; skip network entirely.
+    if dst.exists() and dst.stat().st_size >= MIN_BYTES:
+        return
     tmp = dst.with_suffix(dst.suffix + ".part")
 
     # Check if we have a partial download to resume
