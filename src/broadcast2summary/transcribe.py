@@ -62,30 +62,58 @@ class FasterWhisperBackend:
     """Real backend. Imports faster_whisper lazily so tests don't need CTranslate2 runtime."""
 
     def __init__(self, *, cheap: bool = False, language_hint: str | None = None,
-                 device: str = "cpu", compute_type: str = "int8"):
+                 device: str = "cpu", compute_type: str = "int8",
+                 batch_size: int = 8, convert_traditional: bool = True):
         self.model_size = "small" if cheap else "large-v3-turbo"
         self.device = device
         self.compute_type = compute_type
         self.language_hint = language_hint
+        self.batch_size = batch_size
+        self.convert_traditional = convert_traditional
         self._model = None
+        self._batched = None
+        self._cc = None
 
     def _load(self):
-        if self._model is None:
-            from faster_whisper import WhisperModel  # lazy import
+        if self._batched is None:
+            from faster_whisper import WhisperModel, BatchedInferencePipeline
             self._model = WhisperModel(
                 self.model_size, device=self.device, compute_type=self.compute_type
             )
-        return self._model
+            self._batched = BatchedInferencePipeline(model=self._model)
+        return self._batched
 
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
-        model = self._load()
-        segments_iter, info = model.transcribe(
+        import sys
+        pipeline = self._load()
+        segments_iter, info = pipeline.transcribe(
             str(audio_path),
             language=self.language_hint,
+            batch_size=self.batch_size,
             vad_filter=True,
         )
-        segs = [Segment(start=s.start, end=s.end, text=s.text) for s in segments_iter]
-        return TranscriptionResult(language=info.language, segments=segs)
+        segs: list[Segment] = []
+        for i, s in enumerate(segments_iter):
+            segs.append(Segment(start=s.start, end=s.end, text=s.text))
+            if i > 0 and i % 20 == 0:
+                pct = (s.end / info.duration * 100) if getattr(info, "duration", 0) else 0
+                print(
+                    f"[transcribe] {i} segs, {s.end:.0f}s/{info.duration:.0f}s ({pct:.0f}%)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        info_lang = getattr(info, "language", None)
+        if self.convert_traditional and (info_lang == "zh" or self.language_hint == "zh"):
+            if self._cc is None:
+                from opencc import OpenCC
+                self._cc = OpenCC("t2s")
+            segs = [
+                Segment(start=s.start, end=s.end, text=self._cc.convert(s.text))
+                for s in segs
+            ]
+
+        return TranscriptionResult(language=info_lang or "", segments=segs)
 
 
 def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:
