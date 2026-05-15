@@ -156,6 +156,7 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
                 guid=e.guid, title=e.title, pub_date=e.pub_date,
                 audio_url=e.audio_url, duration_seconds=e.duration_seconds,
                 feed_name=e.feed_name, wiki_node_token=f.wiki_node_token,
+                language=f.language,
             )
             for e in episodes
         ]
@@ -280,6 +281,7 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
             guid=e.guid, title=e.title, pub_date=e.pub_date,
             audio_url=e.audio_url, duration_seconds=e.duration_seconds,
             feed_name=e.feed_name, wiki_node_token=feed.wiki_node_token,
+            language=feed.language,
         )
         for e in episodes
     ]
@@ -414,6 +416,7 @@ def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
             audio_url=r.audio_url, duration_seconds=0,
             feed_name=r.feed_name,
             wiki_node_token=feed.wiki_node_token,
+            language=feed.language,
         )
         process_episode(ep, deps=deps)
     return 0
