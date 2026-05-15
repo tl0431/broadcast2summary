@@ -1940,7 +1940,7 @@ git commit -m "feat(output-wiki): rewrite to lark-cli docs +create + wiki_node_t
 
 ---
 
-
+## Spec → Plan Coverage Map
 
 | Spec section | Implemented in |
 |---|---|
@@ -1952,9 +1952,12 @@ git commit -m "feat(output-wiki): rewrite to lark-cli docs +create + wiki_node_t
 | §5.6 简繁转换 | Task 3 |
 | §5.7 Prompt 增强 | Task 5 |
 | §5.8 配置扩展 | Task 2 |
-| §6 测试矩阵 | Tasks 2, 3, 4, 6, 7, 8 |
+| §6 测试矩阵 | Tasks 2, 3, 4, 6, 7, 8, 10, 11, 12 |
 | §7 性能预期 | (实测,在主分支跑完 backfill 后验证) |
 | §8 风险与回滚 | (deps in Task 1, 配置在 Task 2,实现都允许 N=1 回退) |
+| §9 完整转写排版 | Task 10 |
+| §10 飞书 Wiki 写入路径修正 | Task 12 (output_wiki rewrite) + Task 11 (FeedConfig.wiki_node_token plumbing) |
+| §11 配置示例 / .env.example | Task 11 (Step 5-6) |
 
 **Open items deferred (per spec §3):**
 - mp3 切片并行 (P2)
