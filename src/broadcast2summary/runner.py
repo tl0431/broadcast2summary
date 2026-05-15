@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 from urllib.parse import urlparse
 import logging
+import threading
 import httpx
 import yaml as _yaml
 from .config import AppConfig, load_config
@@ -42,6 +43,72 @@ def _resolve_parallelism(cfg_n: int, *, min_avail_gb: float = 1.5) -> int:
 		)
 		return min(cfg_n, safe_n)
 	return cfg_n
+
+
+class MemoryWatchdog:
+	"""Daemon thread polling virtual_memory().percent.
+
+	When percent >= threshold_pct: pause new dispatch (already-running workers
+	are NEVER killed - data integrity).
+	When percent <= recover_pct: resume dispatch.
+	"""
+
+	def __init__(self, *, threshold_pct: float = 90,
+				 recover_pct: float = 80,
+				 poll_interval: float = 30.0):
+		self.threshold_pct = threshold_pct
+		self.recover_pct = recover_pct
+		self.poll_interval = poll_interval
+		self._ok_to_dispatch = threading.Event()
+		self._ok_to_dispatch.set()
+		self._stop = threading.Event()
+		self._thread: threading.Thread | None = None
+		self._psutil_available = self._probe_psutil()
+
+	@staticmethod
+	def _probe_psutil() -> bool:
+		try:
+			import psutil
+			if psutil is None:
+				return False
+			psutil.virtual_memory()
+			return True
+		except (ImportError, AttributeError):
+			return False
+
+	def start(self) -> None:
+		if not self._psutil_available:
+			return
+		self._stop.clear()
+		self._thread = threading.Thread(target=self._loop, daemon=True)
+		self._thread.start()
+
+	def stop(self) -> None:
+		self._stop.set()
+		if self._thread is not None:
+			self._thread.join(timeout=2.0)
+			self._thread = None
+
+	def wait_if_pressured(self, timeout: float | None = None) -> None:
+		"""Block until dispatch is allowed. No-op when psutil missing."""
+		if not self._psutil_available:
+			return
+		self._ok_to_dispatch.wait(timeout=timeout)
+
+	def _loop(self) -> None:
+		import psutil
+		while not self._stop.is_set():
+			try:
+				pct = psutil.virtual_memory().percent
+			except Exception:
+				pct = 0.0
+			if pct >= self.threshold_pct and self._ok_to_dispatch.is_set():
+				logger.warning("memory pressure %.1f%% - pausing dispatch", pct)
+				self._ok_to_dispatch.clear()
+			elif pct <= self.recover_pct and not self._ok_to_dispatch.is_set():
+				logger.info("memory pressure %.1f%% - resuming dispatch", pct)
+				self._ok_to_dispatch.set()
+			self._stop.wait(self.poll_interval)
 
 
 def _feeds_path() -> Path:
