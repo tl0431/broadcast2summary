@@ -14,7 +14,7 @@ def push_summary_to_im(
     if not target_open_id:
         return
     text = _build_text(show_name, episode_title, summary, wiki_doc_url)
-    lark.run(["im", "send", "--to", target_open_id, "--text", text])
+    lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
 
 
 def _build_text(show_name: str, episode_title: str, summary: dict,

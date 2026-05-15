@@ -236,7 +236,7 @@ def test_feed_config_loads_wiki_node_token(tmp_path):
     feeds_yaml.write_text(
         """
 defaults:
-  lark_wiki_space_id: "7639748992342969568"
+  lark_folder_token: "JeezfEraLlyIZMdwAqdc9Zx5n0h"
 feeds:
   - name: 硅谷101
     rss_url: https://feeds.fireside.fm/sv101/rss
@@ -256,19 +256,19 @@ feeds:
         feeds_yaml,
         env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
     )
-    assert cfg.lark_wiki_space_id == "7639748992342969568"
+    assert cfg.lark_folder_token == "JeezfEraLlyIZMdwAqdc9Zx5n0h"
     f0 = cfg.feeds[0]
     assert f0.wiki_node_token == "QbrkwfBSTiA76okUQX1cr4wfnwh"
     f1 = cfg.feeds[1]
     assert f1.wiki_node_token is None
 
 
-def test_lark_wiki_space_id_env_overrides_yaml(tmp_path):
+def test_lark_folder_token_env_overrides_yaml(tmp_path):
     feeds_yaml = tmp_path / "feeds.yaml"
     feeds_yaml.write_text(
         """
 defaults:
-  lark_wiki_space_id: "yaml-id"
+  lark_folder_token: "yaml-token"
 feeds: []
 """,
         encoding="utf-8",
@@ -278,7 +278,7 @@ feeds: []
         env={
             "DEEPSEEK_API_KEY": "k",
             "ANTHROPIC_AUTH_TOKEN": "k",
-            "LARK_WIKI_SPACE_ID": "env-id",
+            "LARK_FOLDER_TOKEN": "env-token",
         },
     )
-    assert cfg.lark_wiki_space_id == "env-id"
+    assert cfg.lark_folder_token == "env-token"

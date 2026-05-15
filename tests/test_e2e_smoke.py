@@ -143,11 +143,11 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
         def __init__(self): self.calls = []
         def run(self, args, **kw):
             self.calls.append(args)
-            if args[:2] == ["im", "send"]:
+            if args[:2] == ["im", "+messages-send"]:
                 return ""
-            if args[:2] == ["docs", "+create"]:
-                return json.dumps({"data": {"token": "doc_xyz",
-                                             "url": "https://lark/doc/xyz"}})
+            if args[2:4] == ["docs", "+create"]:
+                return json.dumps({"data": {"doc_id": "doc_xyz",
+                                             "doc_url": "https://lark/doc/xyz"}})
             return ""
 
     state = State(tmp_path / "s.db")
@@ -170,7 +170,7 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
         im_target="ou_1",
-        wiki_space_id="wikspace_test",
+        lark_folder_token="JeezfEraLlyIZMdwAqdc9Zx5n0h",
         wiki_root="wikcn_root",
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
@@ -191,9 +191,9 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
 
     # 2. wiki + 3. IM both called
     lark_calls = deps.lark.calls
-    cmds = [c[:2] for c in lark_calls]
+    cmds = [c[2:4] if len(c) > 3 and c[:2] == ["--as", "user"] else c[:2] for c in lark_calls]
     assert ["docs", "+create"] in cmds
-    assert ["im", "send"] in cmds
+    assert ["im", "+messages-send"] in cmds
 
     # 4. state recorded
     assert state.is_processed("g1") is True

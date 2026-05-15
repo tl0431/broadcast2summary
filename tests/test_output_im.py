@@ -24,11 +24,15 @@ def test_push_summary_builds_concise_card_with_link():
     assert len(lark.calls) == 1
     args = lark.calls[0]
     assert args[0] == "im"
-    assert "--to" in args
-    idx = args.index("--to")
-    assert args[idx + 1] == "ou_user_1"
+    assert args[1] == "+messages-send"
+    assert "--as" in args
+    as_idx = args.index("--as")
+    assert args[as_idx + 1] == "bot"
+    assert "--user-id" in args
+    uid_idx = args.index("--user-id")
+    assert args[uid_idx + 1] == "ou_user_1"
     # Text contains tldr, first 3 key_points only, and link
-    text_arg_idx = args.index("--text") + 1
+    text_arg_idx = args.index("--markdown") + 1
     text = args[text_arg_idx]
     assert "工程化方法" in text
     assert "要点 A" in text and "要点 B" in text and "要点 C" in text

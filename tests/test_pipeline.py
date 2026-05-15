@@ -16,12 +16,12 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
         def __init__(self): self.calls = []
         def run(self, args, **kw):
             self.calls.append(args)
-            if args[:2] == ["im", "send"]:
+            if args[:2] == ["im", "+messages-send"]:
                 captured_im.append(args)
                 return ""
-            if args[:2] == ["docs", "+create"]:
-                return json.dumps({"data": {"token": "doc_xyz",
-                                             "url": "https://lark/doc/xyz"}})
+            if args[2:4] == ["docs", "+create"]:
+                return json.dumps({"data": {"doc_id": "doc_xyz",
+                                             "doc_url": "https://lark/doc/xyz"}})
             return ""
 
     lark = FakeLark()
@@ -70,7 +70,7 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
         im_target="ou_1",
-        wiki_space_id="wikspace_test",
+        lark_folder_token="JeezfEraLlyIZMdwAqdc9Zx5n0h",
         wiki_root="wikcn_root",
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
@@ -88,9 +88,9 @@ def test_process_episode_full_success(tmp_path: Path, fixtures_dir):
     # mp3 deleted on success
     assert not (tmp_path / "audio" / "g1.mp3").exists()
     assert captured_im, "IM push should have happened"
-    cmds = [c[:2] for c in lark.calls]
+    cmds = [c[2:4] if len(c) > 3 and c[:2] == ["--as", "user"] else c[:2] for c in lark.calls]
     assert ["docs", "+create"] in cmds
-    assert ["im", "send"] in cmds
+    assert ["im", "+messages-send"] in cmds
 
 
 def test_process_episode_transcribe_failure_keeps_mp3(tmp_path: Path):
@@ -109,7 +109,7 @@ def test_process_episode_transcribe_failure_keeps_mp3(tmp_path: Path):
         audio_dir=tmp_path / "audio",
         failed_dir=tmp_path / "failed",
         im_target=None,
-        wiki_space_id=None,
+        lark_folder_token=None,
         wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,

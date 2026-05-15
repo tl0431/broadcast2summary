@@ -51,7 +51,7 @@ class AppConfig:
     deepseek_api_key: str
     anthropic_auth_token: str
     anthropic_base_url: str | None
-    lark_wiki_space_id: str | None
+    lark_folder_token: str | None
     lark_im_target_open_id: str | None
     lark_wiki_root_token: str | None
 
@@ -179,9 +179,9 @@ def load_config(
     if not anthropic_token:
         raise RuntimeError("missing required env var: ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY")
 
-    lark_wiki_space_id = (
-        env.get("LARK_WIKI_SPACE_ID")
-        or defaults_raw.get("lark_wiki_space_id")
+    lark_folder_token = (
+        env.get("LARK_FOLDER_TOKEN")
+        or defaults_raw.get("lark_folder_token")
         or None
     )
 
@@ -193,7 +193,7 @@ def load_config(
         deepseek_api_key=require("DEEPSEEK_API_KEY"),
         anthropic_auth_token=anthropic_token,
         anthropic_base_url=env.get("ANTHROPIC_BASE_URL"),
-        lark_wiki_space_id=lark_wiki_space_id,
+        lark_folder_token=lark_folder_token,
         lark_im_target_open_id=env.get("LARK_IM_TARGET_OPEN_ID"),
         lark_wiki_root_token=env.get("LARK_WIKI_ROOT_TOKEN"),
     )

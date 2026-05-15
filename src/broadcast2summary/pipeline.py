@@ -23,7 +23,7 @@ class PipelineDeps:
     audio_dir: Path
     failed_dir: Path
     im_target: str | None
-    wiki_space_id: str | None
+    lark_folder_token: str | None
     wiki_root: str | None
     download_fn: Callable[[str, Path], None]
     l3_enabled: bool
@@ -93,12 +93,10 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             pub_date=ep.pub_date, summary=summary.parsed, segments=transcription.segments,
         )
         wiki_token, wiki_url = None, None
-        target_node = ep.wiki_node_token or deps.wiki_root
-        if deps.lark and deps.wiki_space_id and target_node:
+        if deps.lark and deps.lark_folder_token:
             wiki_result = push_summary_to_wiki(
                 lark=deps.lark,
-                space_id=deps.wiki_space_id,
-                target_node_token=target_node,
+                folder_token=deps.lark_folder_token,
                 title=f"{ep.pub_date[:10]} {ep.title}",
                 markdown_body=render_markdown(
                     ep.feed_name, ep.title, ep.pub_date,

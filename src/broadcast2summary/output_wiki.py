@@ -13,26 +13,25 @@ class WikiResult:
 def push_summary_to_wiki(
     *,
     lark: LarkClient,
-    space_id: str,
-    target_node_token: str,
+    folder_token: str,
     title: str,
     markdown_body: str,
 ) -> WikiResult:
-    """Create a Lark docx mounted under <space_id>/<target_node_token>.
+    """Create a Lark docx in a cloud drive folder.
 
-    Uses `lark-cli docs +create --wiki-space ... --wiki-node ...` (single shot,
-    no separate ensure-node step). Returns the created doc's token + URL.
+    Uses `lark-cli --as user docs +create --folder-token ...` (user identity required).
+    Returns the created doc's id + URL.
     """
     raw = lark.run([
+        "--as", "user",
         "docs", "+create",
-        "--wiki-space", space_id,
-        "--wiki-node", target_node_token,
+        "--folder-token", folder_token,
         "--title", title,
         "--markdown", markdown_body,
     ])
     payload = json.loads(raw)
     data = payload.get("data") or {}
     return WikiResult(
-        doc_token=data.get("token", ""),
-        url=data.get("url", ""),
+        doc_token=data.get("doc_id", ""),
+        url=data.get("doc_url", ""),
     )
