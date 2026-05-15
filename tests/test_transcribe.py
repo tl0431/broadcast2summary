@@ -93,3 +93,29 @@ def test_faster_whisper_backend_skips_opencc_for_non_zh(monkeypatch):
 
     result = backend.transcribe("/dev/null")
     assert result.segments[0].text == "Hello world"
+
+
+def test_faster_whisper_backend_passes_batch_size(monkeypatch):
+    from broadcast2summary.transcribe import FasterWhisperBackend
+
+    captured: dict = {}
+
+    class FakeBatched:
+        def transcribe(self, *args, **kwargs):
+            captured["batch_size"] = kwargs.get("batch_size")
+            captured["language"] = kwargs.get("language")
+            captured["vad_filter"] = kwargs.get("vad_filter")
+
+            class FakeInfo:
+                language = "zh"
+                duration = 0.0
+
+            return iter([]), FakeInfo()
+
+    backend = FasterWhisperBackend(cheap=True, language_hint="zh", batch_size=16)
+    monkeypatch.setattr(backend, "_load", lambda: FakeBatched())
+
+    backend.transcribe("/dev/null")
+    assert captured["batch_size"] == 16
+    assert captured["language"] == "zh"
+    assert captured["vad_filter"] is True
