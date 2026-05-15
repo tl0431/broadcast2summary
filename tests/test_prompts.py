@@ -23,3 +23,13 @@ def test_render_summary_prompt_handles_missing_guests():
         transcript_with_timestamps="[00:00:00] hi.\n", guests_hint=None,
     )
     assert "未知" in p
+
+
+def test_render_summary_prompt_includes_asr_correction_guidance():
+    from broadcast2summary.prompts import render_summary_prompt
+    p = render_summary_prompt(
+        show_name="X", episode_title="Y", duration_minutes=10,
+        transcript_with_timestamps="[00:00:00] hi.\n", guests_hint=None,
+    )
+    assert "ASR" in p or "原始转写" in p
+    assert "CAR-T" in p or "术语" in p
