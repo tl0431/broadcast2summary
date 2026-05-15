@@ -1,4 +1,3 @@
-import sys
 from broadcast2summary.transcribe import Segment
 
 
