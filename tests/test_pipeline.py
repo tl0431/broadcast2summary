@@ -242,9 +242,6 @@ def test_im_failure_does_not_prevent_success(tmp_path: Path, fixtures_dir):
 
 
 def test_diarization_disabled_skips_diarize(tmp_path: Path, fixtures_dir, monkeypatch):
-    from broadcast2summary.diarize import SpeakerTurn
-    from broadcast2summary.transcribe import TranscriptionResult, Segment
-
     diarize_called = []
     monkeypatch.setattr(
         "broadcast2summary.pipeline.diarize_audio",
