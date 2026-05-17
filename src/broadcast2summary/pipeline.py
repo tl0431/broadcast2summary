@@ -100,6 +100,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             transcript_full=transcript_full,
             l3_enabled=deps.l3_enabled,
             deepseek=deps.deepseek, claude=deps.claude, stubs=deps.summarize_stubs,
+            include_speaker_names=deps.diarization_enabled,
         )
     except SummarizeFailure as e:
         audio_path.unlink(missing_ok=True)
@@ -119,8 +120,9 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     else:
         translated_segments = transcription.segments
 
-    speaker_names = summary.parsed.get("speaker_names") or {}
-    translated_segments = apply_speaker_names(translated_segments, speaker_names)
+    if deps.diarization_enabled:
+        speaker_names = summary.parsed.get("speaker_names") or {}
+        translated_segments = apply_speaker_names(translated_segments, speaker_names)
 
     # ---- local markdown (core artifact — failure = episode failed) ----
     try:

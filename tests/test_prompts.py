@@ -38,6 +38,32 @@ def test_summary_prompt_speaker_names_instruction():
     assert "speaker_names" in SUMMARY_PROMPT
 
 
+def test_render_summary_prompt_excludes_speaker_names_when_disabled():
+    p = render_summary_prompt(
+        show_name="X",
+        episode_title="Y",
+        duration_minutes=10,
+        transcript_with_timestamps="[00:00:00] hi.\n",
+        guests_hint=None,
+        include_speaker_names=False,
+    )
+    assert "speaker_names" not in p
+    assert "SPEAKER_" not in p
+
+
+def test_render_summary_prompt_includes_speaker_names_when_enabled():
+    p = render_summary_prompt(
+        show_name="X",
+        episode_title="Y",
+        duration_minutes=10,
+        transcript_with_timestamps="[00:00:00] [SPEAKER_00] hi.\n",
+        guests_hint=None,
+        include_speaker_names=True,
+    )
+    assert "speaker_names" in p
+    assert "SPEAKER_" in p
+
+
 def test_render_summary_prompt_includes_asr_correction_guidance():
     from broadcast2summary.prompts import render_summary_prompt
     p = render_summary_prompt(

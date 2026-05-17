@@ -32,7 +32,7 @@ class TranscriptionResult:
         buf: list[str] = []
         buf_len = 0
         for s in self.segments:
-            line = f"[{_fmt_hms(s.start)}] {s.text.strip()}\n"
+            line = f"{format_segment_line_for_summary(s)}\n"
             if buf_len + len(line) > max_chars and buf:
                 chunks.append("".join(buf))
                 buf, buf_len = [], 0
@@ -183,6 +183,14 @@ class WhisperCppBackend:
 
 def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:
     return backend.transcribe(audio_path)
+
+
+def format_segment_line_for_summary(seg: Segment) -> str:
+    """One transcript line for the summarizer (speaker_id only, before identity resolution)."""
+    ts = _fmt_hms(seg.start)
+    if seg.speaker_id:
+        return f"[{ts}] [{seg.speaker_id}] {seg.text.strip()}"
+    return f"[{ts}] {seg.text.strip()}"
 
 
 def _fmt_hms(seconds: float) -> str:

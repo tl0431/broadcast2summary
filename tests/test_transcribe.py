@@ -16,6 +16,24 @@ def test_segment_has_speaker_name_field():
     assert seg.speaker_name is None
 
 
+def test_chunked_for_summary_includes_speaker_id():
+    segs = [
+        Segment(start=0.0, end=5.0, text="大家好", speaker_id="SPEAKER_00"),
+        Segment(start=5.0, end=10.0, text="欢迎", speaker_id="SPEAKER_01"),
+    ]
+    chunks = TranscriptionResult(language="zh", segments=segs).chunked_for_summary()
+    joined = "".join(chunks)
+    assert "[00:00:00] [SPEAKER_00] 大家好" in joined
+    assert "[00:00:05] [SPEAKER_01] 欢迎" in joined
+
+
+def test_chunked_for_summary_omits_speaker_without_id():
+    segs = [Segment(start=0.0, end=5.0, text="hello")]
+    chunks = TranscriptionResult(language="en", segments=segs).chunked_for_summary()
+    assert "[00:00:00] hello" in chunks[0]
+    assert "SPEAKER_" not in chunks[0]
+
+
 def test_stub_backend_returns_fixture(fixtures_dir, tmp_path):
     backend = StubBackend(fixtures_dir / "sample_transcript.json")
     result = transcribe_audio(tmp_path / "fake.mp3", backend=backend)

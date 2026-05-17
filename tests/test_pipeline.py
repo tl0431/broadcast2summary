@@ -241,12 +241,29 @@ def test_im_failure_does_not_prevent_success(tmp_path: Path, fixtures_dir):
     assert state.is_processed("g2") is True
 
 
-def test_diarization_disabled_skips_diarize(tmp_path: Path, fixtures_dir, monkeypatch):
+def test_diarization_disabled_skips_diarize_and_apply_speaker_names(
+    tmp_path: Path, fixtures_dir, monkeypatch,
+):
     diarize_called = []
+    apply_called = []
+
     monkeypatch.setattr(
         "broadcast2summary.pipeline.diarize_audio",
         lambda *a, **k: diarize_called.append(1) or [],
     )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.apply_speaker_names",
+        lambda segs, names, **kw: apply_called.append(names) or segs,
+    )
+
+    summarize_kwargs = []
+
+    def capture_summarize(**kwargs):
+        summarize_kwargs.append(kwargs)
+        from broadcast2summary.summarize import SummarizeFailure
+        raise SummarizeFailure("stop after summarize capture")
+
+    monkeypatch.setattr("broadcast2summary.pipeline.summarize", capture_summarize)
 
     state = State(tmp_path / "s.db")
     state.init_schema()
@@ -275,8 +292,12 @@ def test_diarization_disabled_skips_diarize(tmp_path: Path, fixtures_dir, monkey
         guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
         audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
     )
-    process_episode(ep, deps=deps)
+    result = process_episode(ep, deps=deps)
     assert diarize_called == []
+    assert apply_called == []
+    assert summarize_kwargs
+    assert summarize_kwargs[0]["include_speaker_names"] is False
+    assert result.failed_stage == "summarize"
 
 
 def test_diarization_failure_does_not_crash(tmp_path: Path, fixtures_dir, monkeypatch):

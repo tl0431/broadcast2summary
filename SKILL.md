@@ -13,7 +13,7 @@ Automation entrypoint for the local podcast-to-summary pipeline.
 | --- | --- |
 | Run today's pipeline manually | `bash scripts/run_daily.sh` |
 | Dry-run / preview today's pending | `python -m broadcast2summary run --dry-run` |
-| Pull a single episode by URL | `bash scripts/add_episode.sh <url>` |
+| Pull a single episode by URL | `bash scripts/add_episode.sh <url>` (mp3 or 小宇宙/Apple 网页) |
 | Pull historical episodes since date | `python -m broadcast2summary backfill "<feed name>" --since 2026-04-01` |
 | Retry all failed episodes | `bash scripts/retry_failed.sh` |
 | Retry a specific guid | `python -m broadcast2summary retry-failed --guid <guid>` |
@@ -23,6 +23,8 @@ Automation entrypoint for the local podcast-to-summary pipeline.
 | Run end-to-end fixtures smoke test | `python -m broadcast2summary test` |
 
 ## Notes
-- Cron runs `python -m broadcast2summary run` once daily. You do not need to invoke it for the scheduled run.
+- Daily schedule: `bash scripts/install_launchd.sh` (23:00 launchd). Manual run: `scripts/run_daily.sh`.
+- Transcribe backend: default `whisper_cpp`; set `B2S_TRANSCRIBE_BACKEND=faster_whisper` to fall back.
+- Set `defaults.transcribe.diarization: false` in `feeds.yaml` to disable speaker labeling.
 - Secrets are sourced from `~/.bashrc_claude` (Anthropic key) and `.env` (DeepSeek + Lark targets). Do not commit them.
 - Failed episodes preserve their `.mp3` under `state/failed/<guid>/`. Once root cause is fixed, run `retry-failed --guid <guid>`.
