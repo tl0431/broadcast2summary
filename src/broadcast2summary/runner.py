@@ -237,19 +237,41 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
 def cmd_fetch_one(url: str, *, cheap: bool = False,
                   title: str | None = None) -> int:
     import hashlib
+    from .url_resolver import EpisodeMeta, resolve_url
+
     cfg = _load()
     state_dir = cfg.paths.state_dir
     state_dir.mkdir(parents=True, exist_ok=True)
     state = State(state_dir / "processed.db")
     state.init_schema()
 
-    guid = hashlib.md5(url.encode()).hexdigest()[:16]
+    is_direct_mp3 = (
+        url.endswith(".mp3") or ".mp3?" in url or "redirect.mp3" in url
+    )
+    if is_direct_mp3:
+        meta = EpisodeMeta(
+            title=title or url.split("/")[-1].split("?")[0],
+            audio_url=url,
+            pub_date=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            duration_seconds=0,
+        )
+    else:
+        meta = resolve_url(url)
+        if title:
+            meta = EpisodeMeta(
+                title=title,
+                audio_url=meta.audio_url,
+                pub_date=meta.pub_date,
+                duration_seconds=meta.duration_seconds,
+            )
+
+    guid = hashlib.md5(meta.audio_url.encode()).hexdigest()[:16]
     ep = Episode(
         guid=guid,
-        title=title or url.split("/")[-1].split("?")[0],
-        pub_date=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        audio_url=url,
-        duration_seconds=0,
+        title=meta.title,
+        pub_date=meta.pub_date or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        audio_url=meta.audio_url,
+        duration_seconds=meta.duration_seconds,
         feed_name="manual",
         language="zh",          # Whisper auto-detect will override via transcription.language
         wiki_node_token=None,   # uses lark_folder_token root fallback
