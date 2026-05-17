@@ -77,9 +77,10 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         lines.append("")
     lines.append("## 完整转写")
     lines.append("")
-    for i, seg in enumerate(segments):
+    for seg in segments:
         ts = _fmt_hms(seg.start)
-        lines.append(f"[{ts}] {seg.text.strip()}")
+        speaker = f"[{seg.speaker_name}] " if seg.speaker_name else ""
+        lines.append(f"[{ts}] {speaker}{seg.text.strip()}")
         if seg.translation and seg.translation.strip():
             lines.append(f"[译] {seg.translation.strip()}")
         lines.append("")  # blank line after every segment = paragraph break in Lark

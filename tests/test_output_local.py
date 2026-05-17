@@ -70,6 +70,55 @@ def test_writes_markdown_with_segment_timestamps(tmp_path):
     assert len(seg_blocks) >= 3
 
 
+def test_render_markdown_confirmed_speaker():
+    from broadcast2summary.output_local import render_markdown
+
+    segments = [Segment(start=0.0, end=5.0, text="句子", speaker_name="雅贤")]
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    assert "[00:00:00] [雅贤] 句子" in text
+
+
+def test_render_markdown_uncertain_speaker():
+    from broadcast2summary.output_local import render_markdown
+
+    segments = [Segment(start=0.0, end=5.0, text="句子", speaker_name="雅贤?")]
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    assert "[雅贤?]" in text
+
+
+def test_render_markdown_no_speaker():
+    from broadcast2summary.output_local import render_markdown
+
+    segments = [Segment(start=0.0, end=5.0, text="句子")]
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    assert "[00:00:00] 句子" in text
+    assert "[雅贤]" not in text
+
+
+def test_render_markdown_unknown_speaker_id():
+    from broadcast2summary.output_local import render_markdown
+
+    segments = [Segment(start=0.0, end=5.0, text="句子", speaker_name="SPEAKER_02")]
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    assert "[SPEAKER_02]" in text
+
+
 def test_render_markdown_bilingual_shows_translation():
     from broadcast2summary.transcribe import Segment
     from broadcast2summary.output_local import render_markdown
