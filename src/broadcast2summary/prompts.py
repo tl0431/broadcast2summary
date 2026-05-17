@@ -21,7 +21,8 @@ SUMMARY_PROMPT = """你是专业播客内容编辑。请基于以下播客转写
   "resources": [{{"type": "book|paper|website|product", "title": "...", "url": "若提及"}}],
   "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
   "guests": ["嘉宾姓名列表"],
-  "actionable_items": ["听众可执行的具体建议,可空"]
+  "actionable_items": ["听众可执行的具体建议,可空"],
+  "speaker_names": {{"SPEAKER_00": "嘉宾真名或null", "SPEAKER_01": null}}
 }}
 
 要求:
@@ -30,6 +31,7 @@ SUMMARY_PROMPT = """你是专业播客内容编辑。请基于以下播客转写
 3. 不要编造原文未出现的信息
 4. 拒绝使用"作为 AI 助手"等元话语
 5. 原始转写来自 ASR,可能存在同音字误识或英文术语错拼(例:CAR-T 被识别成 Carty)。摘要里使用通用规范写法,不要复刻原文错字。完整转写本身保持 ASR 原貌,作为可追溯证据。
+6. 如果转写包含 [SPEAKER_XX] 标注,在 speaker_names 字段返回每个说话人的真实姓名(从内容推断)。无法确定的填 null。
 """
 
 

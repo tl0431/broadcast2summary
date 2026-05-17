@@ -25,6 +25,19 @@ def test_render_summary_prompt_handles_missing_guests():
     assert "未知" in p
 
 
+def test_summary_prompt_contains_speaker_names_field():
+    from broadcast2summary.prompts import SUMMARY_PROMPT
+
+    assert "speaker_names" in SUMMARY_PROMPT
+
+
+def test_summary_prompt_speaker_names_instruction():
+    from broadcast2summary.prompts import SUMMARY_PROMPT
+
+    assert "SPEAKER_" in SUMMARY_PROMPT
+    assert "speaker_names" in SUMMARY_PROMPT
+
+
 def test_render_summary_prompt_includes_asr_correction_guidance():
     from broadcast2summary.prompts import render_summary_prompt
     p = render_summary_prompt(
