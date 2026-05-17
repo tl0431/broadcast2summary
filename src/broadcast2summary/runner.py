@@ -323,6 +323,8 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
         wiki_root=cfg.lark_wiki_root_token,
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
+        diarization_enabled=cfg.transcribe.diarization,
+        max_speakers=cfg.transcribe.max_speakers,
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
         claude=ClaudeClient(
@@ -347,6 +349,8 @@ def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
         "batch_size": cfg.transcribe.batch_size,
         "convert_traditional": cfg.transcribe.convert_traditional,
         "transcribe_backend": cfg.transcribe.backend,
+        "diarization_enabled": cfg.transcribe.diarization,
+        "max_speakers": cfg.transcribe.max_speakers,
         "cheap": cheap,
     }
 
@@ -393,6 +397,8 @@ def _run_in_worker(ep: Episode, deps_args: dict):
         wiki_root=deps_args["wiki_root"],
         download_fn=download_audio,
         l3_enabled=bool(deps_args["l3_enabled"]),
+        diarization_enabled=bool(deps_args.get("diarization_enabled", True)),
+        max_speakers=int(deps_args.get("max_speakers", 6)),
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=deps_args["deepseek_api_key"], cheap=cheap),
         claude=ClaudeClient(

@@ -8,7 +8,9 @@ import shutil
 import traceback
 from .rss import Episode
 from .state import State, EpisodeRecord, FailedRecord
-from .transcribe import TranscribeBackend, transcribe_audio
+from .transcribe import TranscribeBackend, transcribe_audio, TranscriptionResult
+from .diarize import diarize_audio, align_speakers
+from .speaker_id import apply_speaker_names
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
 from .output_local import write_local_markdown, render_markdown
 from .output_im import push_summary_to_im
@@ -35,6 +37,8 @@ class PipelineDeps:
     deepseek: LLMClient | None = None
     claude: LLMClient | None = None
     summarize_stubs: SummarizeStubs | None = None
+    diarization_enabled: bool = True
+    max_speakers: int = 6
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,18 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     # ---- transcribe ----
     try:
         transcription = transcribe_audio(audio_path, backend=deps.transcribe_backend)
+        if deps.diarization_enabled:
+            try:
+                turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
+                transcription = TranscriptionResult(
+                    language=transcription.language,
+                    segments=align_speakers(transcription.segments, turns),
+                )
+            except Exception:
+                logger.exception(
+                    "diarization failed for %s — continuing without speaker labels",
+                    ep.guid,
+                )
     except Exception as e:
         # keep mp3
         failed_dir = deps.failed_dir / _safe(ep.guid)
@@ -102,6 +118,9 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             translated_segments = transcription.segments
     else:
         translated_segments = transcription.segments
+
+    speaker_names = summary.parsed.get("speaker_names") or {}
+    translated_segments = apply_speaker_names(translated_segments, speaker_names)
 
     # ---- local markdown (core artifact — failure = episode failed) ----
     try:
