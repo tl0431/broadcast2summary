@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -148,18 +151,34 @@ class WhisperCppBackend:
             self._model = Model(self.model_size, n_threads=self.n_threads)
         return self._model
 
+    def _resolve_language(self, model, audio_path: Path) -> tuple[str, str]:
+        """Return (transcribe_language, info_language) for whisper.cpp."""
+        if self.language_hint:
+            return self.language_hint, self.language_hint
+        audio_str = str(audio_path)
+        detect = getattr(model, "auto_detect_language", None)
+        if detect is not None:
+            try:
+                detected, _probs = detect(audio_str)
+                if detected:
+                    return detected, detected
+            except Exception:
+                logger.warning(
+                    "WhisperCpp language auto-detect failed for %s; falling back to auto",
+                    audio_path,
+                    exc_info=True,
+                )
+        return "auto", ""
+
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
         model = self._load()
-        raw_segs = model.transcribe(
-            str(audio_path),
-            language=self.language_hint or "auto",
-        )
+        transcribe_lang, info_lang = self._resolve_language(model, audio_path)
+        raw_segs = model.transcribe(str(audio_path), language=transcribe_lang)
         segs = [
             Segment(start=s.t0 / 100.0, end=s.t1 / 100.0, text=s.text.strip())
             for s in raw_segs
         ]
-        info_lang = self.language_hint or "zh"
-        if self.convert_traditional and info_lang == "zh":
+        if self.convert_traditional and (info_lang == "zh" or self.language_hint == "zh"):
             if self._cc is None:
                 from opencc import OpenCC
 
@@ -175,8 +194,8 @@ class WhisperCppBackend:
             ]
             from .punctuate import punctuate_segments
 
-            segs = punctuate_segments(segs, info_lang)
-        return TranscriptionResult(language=info_lang, segments=segs)
+            segs = punctuate_segments(segs, info_lang or "")
+        return TranscriptionResult(language=info_lang or "", segments=segs)
 
 
 def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:

@@ -173,16 +173,80 @@ def test_whisper_cpp_backend_transcribe_mock(monkeypatch, tmp_path):
 
     class FakeModel:
         def transcribe(self, path, language=None):
+            assert language == "zh"
             return [FakeRawSeg(0, 5000, "hello")]
 
     backend = WhisperCppBackend(cheap=True, language_hint="zh", convert_traditional=False)
     monkeypatch.setattr(backend, "_load", lambda: FakeModel())
 
     result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == "zh"
     assert len(result.segments) >= 1
     assert result.segments[0].text == "hello"
     assert result.segments[0].start == 0.0
     assert result.segments[0].end == 50.0
+
+
+def test_whisper_cpp_auto_detects_when_no_language_hint(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def auto_detect_language(self, path):
+            return "en", [0.95]
+
+        def transcribe(self, path, language=None):
+            assert language == "en"
+            return [FakeRawSeg(0, 3000, "hello world")]
+
+    backend = WhisperCppBackend(cheap=True, convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == "en"
+    assert result.segments[0].text == "hello world"
+
+
+def test_whisper_cpp_language_hint_skips_auto_detect(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    detect_called = []
+
+    class FakeModel:
+        def auto_detect_language(self, path):
+            detect_called.append(path)
+            return "en", []
+
+        def transcribe(self, path, language=None):
+            assert language == "zh"
+            return []
+
+    backend = WhisperCppBackend(cheap=True, language_hint="zh", convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+    backend.transcribe(tmp_path / "fake.wav")
+    assert detect_called == []
+
+
+def test_whisper_cpp_no_hint_without_auto_detect_falls_back_to_auto(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def transcribe(self, path, language=None):
+            assert language == "auto"
+            return [FakeRawSeg(0, 1000, "x")]
+
+    backend = WhisperCppBackend(cheap=True, convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == ""
 
 
 def test_build_deps_selects_whisper_cpp_backend(tmp_path):
