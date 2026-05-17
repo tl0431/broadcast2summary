@@ -123,6 +123,64 @@ class FasterWhisperBackend:
         return TranscriptionResult(language=info_lang or "", segments=segs)
 
 
+class WhisperCppBackend:
+    """Apple Metal-accelerated transcription via whisper.cpp (pywhispercpp)."""
+
+    def __init__(
+        self,
+        *,
+        cheap: bool = False,
+        language_hint: str | None = None,
+        n_threads: int = 4,
+        convert_traditional: bool = True,
+    ):
+        self.model_size = "small" if cheap else "large-v3-turbo"
+        self.language_hint = language_hint
+        self.n_threads = n_threads
+        self.convert_traditional = convert_traditional
+        self._model = None
+        self._cc = None
+
+    def _load(self):
+        if self._model is None:
+            from pywhispercpp.model import Model
+
+            self._model = Model(self.model_size, n_threads=self.n_threads)
+        return self._model
+
+    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+        model = self._load()
+        raw_segs = model.transcribe(
+            str(audio_path),
+            language=self.language_hint or "auto",
+        )
+        segs = [
+            Segment(start=s.t0 / 100.0, end=s.t1 / 100.0, text=s.text.strip())
+            for s in raw_segs
+        ]
+        info_lang = self.language_hint or "zh"
+        if self.convert_traditional and info_lang == "zh":
+            if self._cc is None:
+                from opencc import OpenCC
+
+                self._cc = OpenCC("t2s")
+            segs = [
+                Segment(
+                    start=s.start,
+                    end=s.end,
+                    text=self._cc.convert(s.text),
+                    translation=s.translation,
+                    speaker_id=s.speaker_id,
+                    speaker_name=s.speaker_name,
+                )
+                for s in segs
+            ]
+            from .punctuate import punctuate_segments
+
+            segs = punctuate_segments(segs, info_lang)
+        return TranscriptionResult(language=info_lang, segments=segs)
+
+
 def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:
     return backend.transcribe(audio_path)
 

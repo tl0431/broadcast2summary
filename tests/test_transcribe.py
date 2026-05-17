@@ -134,6 +134,77 @@ def test_faster_whisper_backend_passes_batch_size(monkeypatch):
     assert captured["vad_filter"] is True
 
 
+def test_whisper_cpp_backend_default_model_size():
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    assert WhisperCppBackend().model_size == "large-v3-turbo"
+
+
+def test_whisper_cpp_backend_cheap_model_size():
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    assert WhisperCppBackend(cheap=True).model_size == "small"
+
+
+def test_whisper_cpp_backend_transcribe_mock(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def transcribe(self, path, language=None):
+            return [FakeRawSeg(0, 5000, "hello")]
+
+    backend = WhisperCppBackend(cheap=True, language_hint="zh", convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert len(result.segments) >= 1
+    assert result.segments[0].text == "hello"
+    assert result.segments[0].start == 0.0
+    assert result.segments[0].end == 50.0
+
+
+def test_build_deps_selects_whisper_cpp_backend(tmp_path):
+    from broadcast2summary.config import load_config
+    from broadcast2summary.runner import _build_deps
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    state = State(tmp_path / "state" / "processed.db")
+    deps = _build_deps(cfg, state, tmp_path / "state", cfg.paths)
+    assert isinstance(deps.transcribe_backend, WhisperCppBackend)
+
+
+def test_build_deps_selects_faster_whisper_backend(tmp_path):
+    from broadcast2summary.config import load_config
+    from broadcast2summary.runner import _build_deps
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import FasterWhisperBackend
+
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "B2S_TRANSCRIBE_BACKEND": "faster_whisper",
+        },
+    )
+    state = State(tmp_path / "state" / "processed.db")
+    deps = _build_deps(cfg, state, tmp_path / "state", cfg.paths)
+    assert isinstance(deps.transcribe_backend, FasterWhisperBackend)
+
+
 def test_segment_has_translation_field():
     from broadcast2summary.transcribe import Segment
     s = Segment(start=0.0, end=5.0, text="hello")
