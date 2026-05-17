@@ -11,6 +11,8 @@ class Segment:
     end: float
     text: str
     translation: str | None = None
+    speaker_id: str | None = None
+    speaker_name: str | None = None
 
     def timestamp(self) -> str:
         return _fmt_hms(self.start)

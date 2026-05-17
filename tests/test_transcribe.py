@@ -1,6 +1,19 @@
 from broadcast2summary.transcribe import (
-    transcribe_audio, TranscriptionResult, StubBackend,
+    Segment,
+    transcribe_audio,
+    TranscriptionResult,
+    StubBackend,
 )
+
+
+def test_segment_has_speaker_id_field():
+    seg = Segment(start=0.0, end=1.0, text="x")
+    assert seg.speaker_id is None
+
+
+def test_segment_has_speaker_name_field():
+    seg = Segment(start=0.0, end=1.0, text="x")
+    assert seg.speaker_name is None
 
 
 def test_stub_backend_returns_fixture(fixtures_dir, tmp_path):

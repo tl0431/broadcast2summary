@@ -17,6 +17,11 @@ dependencies = [
     "python-dateutil>=2.9",
     "opencc-python-reimplemented>=0.1.7",
     "psutil>=5.9",
+    "pywhispercpp>=1.2",
+    "silero-vad>=4.0",
+    "wespeaker>=1.0",
+    "onnxruntime>=1.18",
+    "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]

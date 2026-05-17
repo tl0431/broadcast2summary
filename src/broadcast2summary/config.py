@@ -19,10 +19,13 @@ class Paths:
 
 @dataclass(frozen=True)
 class TranscribeConfig:
+    backend: str = "whisper_cpp"
     parallelism: int = 1
     batch_size: int = 8
     convert_traditional: bool = True
     min_avail_gb_per_worker: float = 1.5
+    diarization: bool = True
+    max_speakers: int = 6
 
 
 @dataclass(frozen=True)
@@ -138,7 +141,12 @@ def load_config(
                 pass
         return fallback
 
+    backend = env.get("B2S_TRANSCRIBE_BACKEND") or transcribe_raw.get(
+        "backend", "whisper_cpp"
+    )
+
     transcribe = TranscribeConfig(
+        backend=backend,
         parallelism=_int_env(
             "B2S_TRANSCRIBE_PARALLELISM",
             int(transcribe_raw.get("parallelism", 1)),
@@ -151,6 +159,11 @@ def load_config(
         min_avail_gb_per_worker=_float_env(
             "B2S_TRANSCRIBE_MIN_AVAIL_GB",
             float(transcribe_raw.get("min_avail_gb_per_worker", 1.5)),
+        ),
+        diarization=bool(transcribe_raw.get("diarization", True)),
+        max_speakers=_int_env(
+            "B2S_TRANSCRIBE_MAX_SPEAKERS",
+            int(transcribe_raw.get("max_speakers", 6)),
         ),
     )
 
