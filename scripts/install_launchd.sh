@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/_plist_helpers.sh
+source "${SCRIPT_DIR}/_plist_helpers.sh"
+
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PLIST="$HOME/Library/LaunchAgents/com.tl.broadcast2summary.plist"
+REPO_DIR_XML="$(xml_escape "$REPO_DIR")"
+HOME_XML="$(xml_escape "$HOME")"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 mkdir -p "$HOME/Knowledge/broadcast/logs"
@@ -19,7 +25,7 @@ cat > "$PLIST" <<EOF
     <array>
         <string>/bin/bash</string>
         <string>-lc</string>
-        <string>source ~/.bashrc_claude &amp;&amp; cd ${REPO_DIR} &amp;&amp; source .venv/bin/activate &amp;&amp; python -m broadcast2summary run</string>
+        <string>source ~/.bashrc_claude &amp;&amp; cd ${REPO_DIR_XML} &amp;&amp; source .venv/bin/activate &amp;&amp; python -m broadcast2summary run</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -27,9 +33,9 @@ cat > "$PLIST" <<EOF
         <key>Minute</key><integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>$HOME/Knowledge/broadcast/logs/launchd.out</string>
+    <string>${HOME_XML}/Knowledge/broadcast/logs/launchd.out</string>
     <key>StandardErrorPath</key>
-    <string>$HOME/Knowledge/broadcast/logs/launchd.err</string>
+    <string>${HOME_XML}/Knowledge/broadcast/logs/launchd.err</string>
 </dict>
 </plist>
 EOF

@@ -256,7 +256,13 @@ def cmd_fetch_one(url: str, *, cheap: bool = False,
             duration_seconds=0,
         )
     else:
-        meta = resolve_url(url)
+        import sys
+
+        try:
+            meta = resolve_url(url)
+        except ValueError as exc:
+            print(f"fetch-one resolve failed: {exc}", file=sys.stderr)
+            return 1
         if title:
             meta = EpisodeMeta(
                 title=title,

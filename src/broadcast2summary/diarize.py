@@ -5,8 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
 
 from .transcribe import Segment
 
@@ -27,6 +25,8 @@ def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTur
         return []
     embeddings = _extract_embeddings(audio, sr, speech_segments)
     n_speakers = _estimate_n_speakers(embeddings, max_speakers)
+    from sklearn.cluster import KMeans
+
     labels = KMeans(n_clusters=n_speakers, n_init=10, random_state=42).fit_predict(
         embeddings
     )
@@ -98,6 +98,9 @@ def _extract_embeddings(audio, sr, segments):
 
 
 def _estimate_n_speakers(embeddings, max_speakers):
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+
     if len(embeddings) < 2:
         return 1
     best_n, best_score = 2, -1.0

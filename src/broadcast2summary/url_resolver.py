@@ -26,20 +26,48 @@ def resolve_url(url: str) -> EpisodeMeta:
     )
 
 
+def _http_get_text(url: str) -> str:
+    try:
+        return httpx.get(url, follow_redirects=True, timeout=30).text
+    except httpx.HTTPError as exc:
+        raise ValueError(f"HTTP request failed for {url}: {exc}") from exc
+
+
+def _http_get_json(url: str) -> dict:
+    try:
+        resp = httpx.get(url, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise ValueError(f"HTTP request failed for {url}: {exc}") from exc
+    try:
+        data = resp.json()
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON from {url}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Unexpected JSON from {url}: expected object, got {type(data).__name__}")
+    return data
+
+
 def _resolve_xiaoyuzhou(url: str) -> EpisodeMeta:
-    html = httpx.get(url, follow_redirects=True, timeout=30).text
+    html = _http_get_text(url)
     m = re.search(
         r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL
     )
     if not m:
         raise ValueError("No ld+json found in xiaoyuzhou page")
-    data = json.loads(m.group(1))
-    return EpisodeMeta(
-        title=data["name"],
-        audio_url=data["associatedMedia"]["contentUrl"],
-        pub_date=data.get("datePublished", ""),
-        duration_seconds=_parse_iso_duration(data.get("duration", "PT0S")),
-    )
+    try:
+        data = json.loads(m.group(1))
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid ld+json in xiaoyuzhou page") from exc
+    try:
+        return EpisodeMeta(
+            title=data["name"],
+            audio_url=data["associatedMedia"]["contentUrl"],
+            pub_date=data.get("datePublished", ""),
+            duration_seconds=_parse_iso_duration(data.get("duration", "PT0S")),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Incomplete ld+json in xiaoyuzhou page") from exc
 
 
 def _resolve_apple(url: str) -> EpisodeMeta:
@@ -47,19 +75,24 @@ def _resolve_apple(url: str) -> EpisodeMeta:
     if not m:
         raise ValueError(f"Cannot parse podcast/episode ID from URL: {url}")
     podcast_id, episode_id = m.group(1), m.group(2)
-    resp = httpx.get(
+    lookup_url = (
         f"https://itunes.apple.com/lookup?id={podcast_id}"
-        f"&media=podcast&entity=podcastEpisode&limit=50",
-        timeout=30,
-    ).json()
+        f"&media=podcast&entity=podcastEpisode&limit=50"
+    )
+    resp = _http_get_json(lookup_url)
     for r in resp.get("results", []):
         if r.get("kind") == "podcast-episode" and str(r.get("trackId")) == episode_id:
-            return EpisodeMeta(
-                title=r["trackName"],
-                audio_url=r["episodeUrl"],
-                pub_date=r.get("releaseDate", ""),
-                duration_seconds=r.get("trackTimeMillis", 0) // 1000,
-            )
+            try:
+                return EpisodeMeta(
+                    title=r["trackName"],
+                    audio_url=r["episodeUrl"],
+                    pub_date=r.get("releaseDate", ""),
+                    duration_seconds=r.get("trackTimeMillis", 0) // 1000,
+                )
+            except (KeyError, TypeError) as exc:
+                raise ValueError(
+                    f"Incomplete episode data from Apple lookup for {episode_id}"
+                ) from exc
     raise ValueError(f"Episode {episode_id} not found in Apple podcast {podcast_id}")
 
 

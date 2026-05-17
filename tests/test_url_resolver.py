@@ -48,6 +48,9 @@ def test_resolve_apple_uses_itunes_api(monkeypatch):
     }
 
     class FakeResp:
+        def raise_for_status(self):
+            return None
+
         def json(self):
             return payload
 
@@ -65,6 +68,9 @@ def test_resolve_apple_episode_not_found_raises(monkeypatch):
     from broadcast2summary.url_resolver import resolve_url
 
     class FakeResp:
+        def raise_for_status(self):
+            return None
+
         def json(self):
             return {"results": []}
 
@@ -74,6 +80,116 @@ def test_resolve_apple_episode_not_found_raises(monkeypatch):
     )
     with pytest.raises(ValueError, match="not found"):
         resolve_url("https://podcasts.apple.com/us/podcast/show/id123?i=999")
+
+
+def test_resolve_xiaoyuzhou_http_error_raises(monkeypatch):
+    import httpx
+    from broadcast2summary.url_resolver import resolve_url
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr("broadcast2summary.url_resolver.httpx.get", boom)
+    with pytest.raises(ValueError, match="HTTP request failed"):
+        resolve_url("https://www.xiaoyuzhoufm.com/episode/abc")
+
+
+def test_resolve_xiaoyuzhou_invalid_ld_json_raises(monkeypatch):
+    from broadcast2summary.url_resolver import resolve_url
+
+    class FakeResp:
+        text = '<script type="application/ld+json">not-json</script>'
+
+    monkeypatch.setattr(
+        "broadcast2summary.url_resolver.httpx.get",
+        lambda url, **kw: FakeResp(),
+    )
+    with pytest.raises(ValueError, match="Invalid ld\\+json"):
+        resolve_url("https://www.xiaoyuzhoufm.com/episode/abc")
+
+
+def test_resolve_apple_http_error_raises(monkeypatch):
+    import httpx
+    from broadcast2summary.url_resolver import resolve_url
+
+    def boom(*a, **k):
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr("broadcast2summary.url_resolver.httpx.get", boom)
+    with pytest.raises(ValueError, match="HTTP request failed"):
+        resolve_url("https://podcasts.apple.com/us/podcast/show/id123?i=999")
+
+
+def test_resolve_apple_invalid_json_raises(monkeypatch):
+    import json as json_mod
+    from broadcast2summary.url_resolver import resolve_url
+
+    class FakeResp:
+        text = "not-json"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise json_mod.JSONDecodeError("msg", "doc", 0)
+
+    monkeypatch.setattr(
+        "broadcast2summary.url_resolver.httpx.get",
+        lambda url, **kw: FakeResp(),
+    )
+    with pytest.raises(ValueError, match="Invalid JSON"):
+        resolve_url("https://podcasts.apple.com/us/podcast/show/id123?i=999")
+
+
+def test_resolve_apple_incomplete_episode_raises(monkeypatch):
+    from broadcast2summary.url_resolver import resolve_url
+
+    payload = {
+        "results": [
+            {
+                "kind": "podcast-episode",
+                "trackId": 999,
+                "trackName": "Apple Ep",
+                # missing episodeUrl
+            }
+        ]
+    }
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return payload
+
+    monkeypatch.setattr(
+        "broadcast2summary.url_resolver.httpx.get",
+        lambda url, **kw: FakeResp(),
+    )
+    with pytest.raises(ValueError, match="Incomplete episode data"):
+        resolve_url("https://podcasts.apple.com/us/podcast/show/id123?i=999")
+
+
+def test_fetch_one_resolve_failure_returns_1(tmp_path, monkeypatch, capsys):
+    from broadcast2summary.runner import cmd_fetch_one
+
+    def boom(url):
+        raise ValueError("HTTP request failed for example: timeout")
+
+    monkeypatch.setattr("broadcast2summary.url_resolver.resolve_url", boom)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "x")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "x")
+    monkeypatch.setenv("B2S_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("B2S_ARCHIVE_ROOT", str(tmp_path / "archive"))
+    monkeypatch.setenv("B2S_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("BROADCAST2SUMMARY_FEEDS", str(tmp_path / "feeds.yaml"))
+    (tmp_path / "feeds.yaml").write_text("feeds: []\n", encoding="utf-8")
+
+    rc = cmd_fetch_one("https://www.xiaoyuzhoufm.com/episode/bad")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "fetch-one resolve failed" in err
+    assert "timeout" in err
 
 
 def test_resolve_unsupported_url_raises():

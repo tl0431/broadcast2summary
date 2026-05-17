@@ -170,8 +170,6 @@ class WhisperCppBackend:
                     end=s.end,
                     text=self._cc.convert(s.text),
                     translation=s.translation,
-                    speaker_id=s.speaker_id,
-                    speaker_name=s.speaker_name,
                 )
                 for s in segs
             ]
