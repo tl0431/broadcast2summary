@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-FIXTURE = Path(__file__).parent / "fixtures" / "sample_real_zh.wav"
+FIXTURE = Path(__file__).parent / "fixtures" / "sample_5min_zh.wav"
 
 
 def _skip_if_missing():
@@ -54,15 +54,16 @@ def test_transcribe_diarize_align_render_real_zh(tmp_path):
     """Full pipeline: transcribe + diarize + align + render markdown on real audio."""
     _skip_if_missing()
     from broadcast2summary.transcribe import WhisperCppBackend
-    from broadcast2summary.diarize import diarize_audio, align_speakers
+    from broadcast2summary.diarize import diarize_audio, align_speakers, release_pipeline
     from broadcast2summary.output_local import render_markdown
+
+    # diarize first — release ~1.5GB before loading Whisper
+    turns = diarize_audio(FIXTURE)
+    release_pipeline()
 
     # transcribe
     backend = WhisperCppBackend(cheap=False, language_hint="zh", convert_traditional=True)
     result = backend.transcribe(FIXTURE)
-
-    # diarize
-    turns = diarize_audio(FIXTURE)
 
     # align
     aligned = align_speakers(result.segments, turns)

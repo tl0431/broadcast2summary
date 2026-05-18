@@ -9,7 +9,7 @@ import traceback
 from .rss import Episode
 from .state import State, EpisodeRecord, FailedRecord
 from .transcribe import TranscribeBackend, transcribe_audio, TranscriptionResult
-from .diarize import diarize_audio, align_speakers
+from .diarize import diarize_audio, align_speakers, release_pipeline
 from .speaker_id import apply_speaker_names
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
 from .output_local import write_local_markdown, render_markdown
@@ -64,21 +64,23 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     except Exception as e:
         return _record_failure(deps, ep, "download", e, now, mp3_path=None)
 
+    # ---- diarize (before transcribe so pyannote releases ~2GB before Whisper loads) ----
+    turns: list = []
+    if deps.diarization_enabled:
+        try:
+            _assert_memory_available(required_gb=2.5, stage="diarization")
+            turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
+        except Exception:
+            logger.exception(
+                "diarization failed for %s — continuing without speaker labels",
+                ep.guid,
+            )
+        finally:
+            release_pipeline()
+
     # ---- transcribe ----
     try:
         transcription = transcribe_audio(audio_path, backend=deps.transcribe_backend)
-        if deps.diarization_enabled:
-            try:
-                turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
-                transcription = TranscriptionResult(
-                    language=transcription.language,
-                    segments=align_speakers(transcription.segments, turns),
-                )
-            except Exception:
-                logger.exception(
-                    "diarization failed for %s — continuing without speaker labels",
-                    ep.guid,
-                )
     except Exception as e:
         # keep mp3
         failed_dir = deps.failed_dir / _safe(ep.guid)
@@ -86,6 +88,13 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         kept_mp3 = failed_dir / "audio.mp3"
         shutil.move(str(audio_path), str(kept_mp3))
         return _record_failure(deps, ep, "transcribe", e, now, mp3_path=kept_mp3)
+
+    # ---- align speakers ----
+    if turns:
+        transcription = TranscriptionResult(
+            language=transcription.language,
+            segments=align_speakers(transcription.segments, turns),
+        )
 
     # ---- summarize ----
     transcript_full = transcription.full_text()
@@ -203,3 +212,15 @@ def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,
 
 def _safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in s)[:120]
+
+
+def _assert_memory_available(required_gb: float, stage: str) -> None:
+    try:
+        import psutil
+        avail = psutil.virtual_memory().available / 1e9
+        if avail < required_gb:
+            raise MemoryError(
+                f"{stage}: need {required_gb:.1f}GB free, {avail:.1f}GB available — skipping"
+            )
+    except ImportError:
+        pass

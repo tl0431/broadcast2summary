@@ -83,7 +83,8 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
     for block in _group_segments(segments):
         first = block[0]
         ts = _fmt_hms(first.start)
-        speaker = f"[{first.speaker_name}] " if first.speaker_name else ""
+        label = first.speaker_name or first.speaker_id
+        speaker = f"[{label}] " if label else ""
         text = repunctuate_block([s.text for s in block], language)
         lines.append(f"[{ts}] {speaker}{text}")
         translations = [s.translation.strip() for s in block if s.translation and s.translation.strip()]
@@ -101,7 +102,7 @@ def _group_segments(segments, *, gap_threshold: float = 5.0) -> list:
     current = [segments[0]]
     for seg in segments[1:]:
         prev = current[-1]
-        speaker_changed = seg.speaker_name != prev.speaker_name
+        speaker_changed = (seg.speaker_name or seg.speaker_id) != (prev.speaker_name or prev.speaker_id)
         time_gap = seg.start - prev.end > gap_threshold
         if speaker_changed or time_gap:
             blocks.append(current)

@@ -42,6 +42,16 @@ def _load_pipeline():
     return _pipeline
 
 
+def release_pipeline() -> None:
+    global _pipeline
+    _pipeline = None
+    import gc
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    log.info("pyannote pipeline released from memory")
+
+
 def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTurn]:
     pipeline = _load_pipeline()
 

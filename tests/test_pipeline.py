@@ -341,6 +341,8 @@ def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, 
 
     align_called = []
 
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+
     def fake_diarize(audio_path, max_speakers=6):
         return [SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=10.0)]
 
@@ -386,6 +388,63 @@ def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, 
     )
     process_episode(ep, deps=deps)
     assert len(align_called) == 1
+
+
+def test_diarization_runs_before_transcription(tmp_path: Path, monkeypatch):
+    """Diarize must complete and release pipeline before transcribe starts."""
+    call_order = []
+
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.diarize_audio",
+        lambda *a, **k: call_order.append("diarize") or [],
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.release_pipeline",
+        lambda: call_order.append("release"),
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.transcribe_audio",
+        lambda path, backend: call_order.append("transcribe") or __import__(
+            "broadcast2summary.transcribe", fromlist=["TranscriptionResult"]
+        ).TranscriptionResult(language="zh", segments=[]),
+    )
+
+    def boom_summarize(**kwargs):
+        from broadcast2summary.summarize import SummarizeFailure
+        raise SummarizeFailure("stop here")
+
+    monkeypatch.setattr("broadcast2summary.pipeline.summarize", boom_summarize)
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(tmp_path / "nope.json"),
+        summarize_stubs=SummarizeStubs(),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=True,
+    )
+    ep = Episode(guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+                 audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test")
+    process_episode(ep, deps=deps)
+
+    assert "diarize" in call_order
+    assert "transcribe" in call_order
+    assert call_order.index("diarize") < call_order.index("transcribe"), (
+        f"diarize must run before transcribe, got order: {call_order}"
+    )
+    assert call_order.index("release") < call_order.index("transcribe"), (
+        f"release must run before transcribe, got order: {call_order}"
+    )
 
 
 def test_speaker_names_applied_from_summary(tmp_path: Path, fixtures_dir, monkeypatch):
