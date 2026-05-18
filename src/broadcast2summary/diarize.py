@@ -65,8 +65,16 @@ def align_speakers(
     return result
 
 
+_WESPEAKER_MODEL_URL = (
+    "https://huggingface.co/Wespeaker/wespeaker-cnceleb-resnet34"
+    "/resolve/main/cnceleb_resnet34.onnx"
+)
+_WESPEAKER_MODEL_PATH = (
+    Path.home() / ".cache" / "broadcast2summary" / "models" / "cnceleb_resnet34.onnx"
+)
+
 _vad_model = None
-_embed_model = None
+_embed_session = None
 
 
 def _run_vad(audio, sr):
@@ -81,18 +89,53 @@ def _run_vad(audio, sr):
     return [(t["start"], t["end"]) for t in ts]
 
 
-def _extract_embeddings(audio, sr, segments):
-    global _embed_model
-    if _embed_model is None:
-        import wespeaker
+def _load_embed_session():
+    global _embed_session
+    if _embed_session is not None:
+        return _embed_session
+    import onnxruntime as ort
 
-        _embed_model = wespeaker.load_model("chinese")
+    if not _WESPEAKER_MODEL_PATH.exists():
+        import urllib.request
+        _WESPEAKER_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(_WESPEAKER_MODEL_URL, _WESPEAKER_MODEL_PATH)
+    so = ort.SessionOptions()
+    so.inter_op_num_threads = 2
+    so.intra_op_num_threads = 2
+    _embed_session = ort.InferenceSession(str(_WESPEAKER_MODEL_PATH), sess_options=so)
+    return _embed_session
+
+
+def _compute_fbank(audio: np.ndarray, sr: int, n_mels: int = 80) -> np.ndarray:
+    """Kaldi-style log-mel fbank, CMN applied. Returns float32 [time, n_mels]."""
+    import librosa
+
+    if sr != 16000:
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+        sr = 16000
+    audio = audio * (1 << 15)
+    n_fft = int(sr * 0.025)   # 25ms
+    hop = int(sr * 0.010)     # 10ms
+    mel = librosa.feature.melspectrogram(
+        y=audio, sr=sr, n_fft=n_fft, hop_length=hop,
+        n_mels=n_mels, window="hamming", center=False,
+    )
+    log_mel = np.log(np.maximum(mel, 1e-10)).T.astype(np.float32)
+    log_mel -= log_mel.mean(axis=0)
+    return log_mel
+
+
+def _extract_embeddings(audio, sr, segments):
+    session = _load_embed_session()
     embeddings = []
     for start, end in segments:
         chunk = audio[int(start * sr) : int(end * sr)]
-        if len(chunk) < sr * 0.5:
-            chunk = np.pad(chunk, (0, max(0, int(sr * 0.5) - len(chunk))))
-        emb = _embed_model.extract_embedding_from_pcm(chunk, sr)
+        min_samples = int(sr * 0.5)
+        if len(chunk) < min_samples:
+            chunk = np.pad(chunk, (0, min_samples - len(chunk)))
+        feats = _compute_fbank(chunk, sr)
+        feats = feats[np.newaxis]          # [1, time, 80]
+        emb = session.run(["embs"], {"feats": feats})[0][0]
         embeddings.append(emb)
     return np.array(embeddings)
 
