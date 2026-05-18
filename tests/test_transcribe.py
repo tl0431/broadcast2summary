@@ -196,7 +196,7 @@ def test_whisper_cpp_auto_detects_when_no_language_hint(monkeypatch, tmp_path):
 
     class FakeModel:
         def auto_detect_language(self, path):
-            return "en", [0.95]
+            return ("en", 0.95), {"en": 0.95}
 
         def transcribe(self, path, language=None):
             assert language == "en"

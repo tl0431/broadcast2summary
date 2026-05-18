@@ -77,11 +77,33 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         lines.append("")
     lines.append("## 完整转写")
     lines.append("")
-    for seg in segments:
-        ts = _fmt_hms(seg.start)
-        speaker = f"[{seg.speaker_name}] " if seg.speaker_name else ""
-        lines.append(f"[{ts}] {speaker}{seg.text.strip()}")
-        if seg.translation and seg.translation.strip():
-            lines.append(f"[译] {seg.translation.strip()}")
-        lines.append("")  # blank line after every segment = paragraph break in Lark
+    for block in _group_segments(segments):
+        first = block[0]
+        ts = _fmt_hms(first.start)
+        speaker = f"[{first.speaker_name}] " if first.speaker_name else ""
+        text = " ".join(s.text.strip() for s in block)
+        lines.append(f"[{ts}] {speaker}{text}")
+        translations = [s.translation.strip() for s in block if s.translation and s.translation.strip()]
+        if translations:
+            lines.append(f"[译] {' '.join(translations)}")
+        lines.append("")
     return "\n".join(lines)
+
+
+def _group_segments(segments, *, gap_threshold: float = 5.0) -> list:
+    """Merge consecutive same-speaker segments into paragraph blocks."""
+    if not segments:
+        return []
+    blocks: list[list] = []
+    current = [segments[0]]
+    for seg in segments[1:]:
+        prev = current[-1]
+        speaker_changed = seg.speaker_name != prev.speaker_name
+        time_gap = seg.start - prev.end > gap_threshold
+        if speaker_changed or time_gap:
+            blocks.append(current)
+            current = [seg]
+        else:
+            current.append(seg)
+    blocks.append(current)
+    return blocks

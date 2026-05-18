@@ -34,9 +34,15 @@ def test_writes_markdown_with_safe_filename(tmp_path: Path):
 
 
 def test_writes_markdown_with_segment_timestamps(tmp_path):
+    # Consecutive segments with no gap and no speaker → merged into one block.
+    # Speaker changes produce separate blocks.
     segments = [
         Segment(start=float(i * 5), end=float(i * 5 + 5), text=f"句子{i}")
-        for i in range(25)
+        for i in range(5)
+    ] + [
+        Segment(start=25.0, end=30.0, text="换人说话", speaker_name="A"),
+        Segment(start=30.0, end=35.0, text="继续说", speaker_name="A"),
+        Segment(start=35.0, end=40.0, text="另一人", speaker_name="B"),
     ]
     summary = {
         "tldr": "TLDR 内容。",
@@ -59,15 +65,17 @@ def test_writes_markdown_with_segment_timestamps(tmp_path):
         segments=segments,
     )
     text = out.read_text(encoding="utf-8")
-    assert "[00:00:00] 句子0" in text
-    assert "[00:00:05] 句子1" in text
-    assert "[00:01:00] 句子12" in text
-    assert "[00:02:00] 句子24" in text
+    # First block: all 5 no-speaker segments merged, timestamp of first segment shown
+    assert "[00:00:00] 句子0 句子1 句子2 句子3 句子4" in text
+    # Speaker A block starts at 25s
+    assert "[00:00:25] [A] 换人说话 继续说" in text
+    # Speaker B block separate
+    assert "[00:00:35] [B] 另一人" in text
     transcript_section = text.split("## 完整转写", 1)[1]
     assert "```" not in transcript_section
     blocks = transcript_section.strip().split("\n\n")
     seg_blocks = [b for b in blocks if "[00:" in b]
-    assert len(seg_blocks) >= 3
+    assert len(seg_blocks) == 3
 
 
 def test_render_markdown_confirmed_speaker():
@@ -123,6 +131,7 @@ def test_render_markdown_bilingual_shows_translation():
     from broadcast2summary.transcribe import Segment
     from broadcast2summary.output_local import render_markdown
 
+    # Two consecutive segments with no gap → merged into one block
     segments = [
         Segment(start=0.0, end=5.0, text="Hello world", translation="你好世界"),
         Segment(start=5.0, end=10.0, text="This is a test", translation="这是测试"),
@@ -135,7 +144,5 @@ def test_render_markdown_bilingual_shows_translation():
         ], "guests": [], "actionable_items": [],
     }
     text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
-    assert "[00:00:00] Hello world" in text
-    assert "[译] 你好世界" in text
-    assert "[00:00:05] This is a test" in text
-    assert "[译] 这是测试" in text
+    assert "[00:00:00] Hello world This is a test" in text
+    assert "[译] 你好世界 这是测试" in text

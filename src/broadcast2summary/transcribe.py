@@ -159,9 +159,9 @@ class WhisperCppBackend:
         detect = getattr(model, "auto_detect_language", None)
         if detect is not None:
             try:
-                detected, _probs = detect(audio_str)
-                if detected:
-                    return detected, detected
+                (lang_str, _prob), _probs = detect(audio_str)
+                if lang_str:
+                    return lang_str, lang_str
             except Exception:
                 logger.warning(
                     "WhisperCpp language auto-detect failed for %s; falling back to auto",
