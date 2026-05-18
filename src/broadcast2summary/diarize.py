@@ -29,7 +29,7 @@ def _load_pipeline():
     hf_token = os.environ.get("HF_TOKEN")
     _pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token,
+        token=hf_token,
     )
     return _pipeline
 
@@ -48,8 +48,9 @@ def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTur
         max_speakers=max_speakers,
     )
 
+    annotation = diarization.speaker_diarization
     turns = []
-    for segment, _, speaker in diarization.itertracks(yield_label=True):
+    for segment, _, speaker in annotation.itertracks(yield_label=True):
         turns.append(SpeakerTurn(
             speaker_id=speaker,
             start=segment.start,

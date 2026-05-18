@@ -42,23 +42,19 @@ def test_diarize_audio_returns_empty_when_pipeline_finds_nothing(monkeypatch, tm
     import numpy as np
     from broadcast2summary.diarize import diarize_audio
 
-    class FakePipeline:
-        def __call__(self, audio_dict, max_speakers=6):
-            return []  # itertracks will be called on this
-
-        def itertracks(self, yield_label=False):
-            return iter([])
-
     class FakeAnnotation:
         def itertracks(self, yield_label=False):
             return iter([])
 
-    class FakePipelineReturningEmpty:
+    class FakeDiarizeOutput:
+        speaker_diarization = FakeAnnotation()
+
+    class FakePipeline:
         def __call__(self, audio_dict, max_speakers=6):
-            return FakeAnnotation()
+            return FakeDiarizeOutput()
 
     monkeypatch.setattr("broadcast2summary.diarize._load_pipeline",
-                        lambda: FakePipelineReturningEmpty())
+                        lambda: FakePipeline())
     monkeypatch.setattr(
         "broadcast2summary.diarize.sf.read",
         lambda path, dtype: (np.zeros(16000, dtype=np.float32), 16000),
