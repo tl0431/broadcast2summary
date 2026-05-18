@@ -38,16 +38,30 @@ def test_align_speakers_empty_turns_returns_none_speaker():
     assert out[0].speaker_id is None
 
 
-def test_diarize_audio_graceful_on_empty_vad(monkeypatch, tmp_path):
+def test_diarize_audio_returns_empty_when_pipeline_finds_nothing(monkeypatch, tmp_path):
+    import numpy as np
     from broadcast2summary.diarize import diarize_audio
 
-    monkeypatch.setattr(
-        "broadcast2summary.diarize._run_vad",
-        lambda audio, sr: [],
-    )
+    class FakePipeline:
+        def __call__(self, audio_dict, max_speakers=6):
+            return []  # itertracks will be called on this
+
+        def itertracks(self, yield_label=False):
+            return iter([])
+
+    class FakeAnnotation:
+        def itertracks(self, yield_label=False):
+            return iter([])
+
+    class FakePipelineReturningEmpty:
+        def __call__(self, audio_dict, max_speakers=6):
+            return FakeAnnotation()
+
+    monkeypatch.setattr("broadcast2summary.diarize._load_pipeline",
+                        lambda: FakePipelineReturningEmpty())
     monkeypatch.setattr(
         "broadcast2summary.diarize.sf.read",
-        lambda path, dtype: (__import__("numpy").zeros(16000), 16000),
+        lambda path, dtype: (np.zeros(16000, dtype=np.float32), 16000),
     )
     assert diarize_audio(tmp_path / "x.wav") == []
 
