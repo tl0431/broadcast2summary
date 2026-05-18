@@ -16,10 +16,18 @@ class SpeakerTurn:
     end: float
 
 
+_TARGET_SR = 16000
+
+
 def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTurn]:
+    import librosa
+
     audio, sr = sf.read(str(audio_path), dtype="float32")
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
+    if sr != _TARGET_SR:
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=_TARGET_SR)
+        sr = _TARGET_SR
     speech_segments = _run_vad(audio, sr)
     if not speech_segments:
         return []
