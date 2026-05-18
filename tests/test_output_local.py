@@ -33,7 +33,11 @@ def test_writes_markdown_with_safe_filename(tmp_path: Path):
     assert "[00:00:00] 大家好。" in text
 
 
-def test_writes_markdown_with_segment_timestamps(tmp_path):
+def test_writes_markdown_with_segment_timestamps(tmp_path, monkeypatch):
+    # Mock repunctuate_block so this structural test doesn't invoke ct-punc-c
+    monkeypatch.setattr("broadcast2summary.output_local.repunctuate_block",
+                        lambda texts, lang: " ".join(t.strip() for t in texts))
+
     # Consecutive segments with no gap and no speaker → merged into one block.
     # Speaker changes produce separate blocks.
     segments = [
@@ -143,6 +147,7 @@ def test_render_markdown_bilingual_shows_translation():
              "title": "intro", "summary": "intro."}
         ], "guests": [], "actionable_items": [],
     }
-    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments)
+    text = render_markdown("Show", "Ep", "2026-05-16T00:00:00Z", summary, segments,
+                           language="en")
     assert "[00:00:00] Hello world This is a test" in text
     assert "[译] 你好世界 这是测试" in text

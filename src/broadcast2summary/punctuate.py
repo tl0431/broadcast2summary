@@ -1,5 +1,10 @@
 from __future__ import annotations
+import re
+
 from .transcribe import Segment
+
+# Terminal punctuation Whisper adds at acoustic (not linguistic) segment boundaries
+_TRAILING_PUNCT = re.compile(r"[。，！？、；：…]+$")
 
 _punct_model = None
 
@@ -35,3 +40,31 @@ def punctuate_segments(segments: list[Segment], language: str) -> list[Segment]:
                 translation=s.translation)
         for s, p in zip(segments, punctuated)
     ]
+
+
+def repunctuate_block(segments_texts: list[str], language: str) -> str:
+    """Strip Whisper's acoustic-boundary punctuation, merge, re-punctuate at paragraph level.
+
+    Whisper adds 。/？ at every segment end (acoustic breaks, not linguistic sentences).
+    ct-punc-c sees the full utterance and places commas/periods semantically.
+    Falls back to plain join on any error.
+    """
+    if language != "zh" or not segments_texts:
+        sep = " " if language != "zh" else ""
+        return sep.join(t.strip() for t in segments_texts)
+
+    # Strip trailing punctuation from each piece before merging
+    stripped = [_TRAILING_PUNCT.sub("", t.strip()) for t in segments_texts]
+    raw = "".join(stripped)  # Chinese: no inter-word spaces
+
+    if not raw:
+        return "".join(t.strip() for t in segments_texts)
+
+    try:
+        model = _load_punct_model()
+        result = model.generate(input=[raw])
+        if isinstance(result, list) and result:
+            return result[0].get("text", raw)
+        return raw
+    except Exception:
+        return raw

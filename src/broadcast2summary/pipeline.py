@@ -130,6 +130,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             archive_root=deps.archive_root,
             show_name=ep.feed_name, episode_title=ep.title,
             pub_date=ep.pub_date, summary=summary.parsed, segments=translated_segments,
+            language=effective_language,
         )
     except Exception as e:
         audio_path.unlink(missing_ok=True)
@@ -147,6 +148,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 markdown_body=render_markdown(
                     ep.feed_name, ep.title, ep.pub_date,
                     summary.parsed, translated_segments,
+                    language=effective_language,
                 ),
             )
             wiki_token = wiki_result.doc_token

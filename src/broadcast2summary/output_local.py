@@ -2,6 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from .punctuate import repunctuate_block
+
 
 _UNSAFE = re.compile(r"[\\/:\*\?\"<>\|\x00-\x1f]")
 
@@ -24,6 +26,7 @@ def write_local_markdown(
     pub_date: str,
     summary: dict,
     segments,
+    language: str = "zh",
 ) -> Path:
     show_dir = archive_root / _safe_filename(show_name)
     show_dir.mkdir(parents=True, exist_ok=True)
@@ -31,14 +34,14 @@ def write_local_markdown(
     filename = f"{date_part}-{_safe_filename(episode_title)}.md"
     out = show_dir / filename
     out.write_text(
-        render_markdown(show_name, episode_title, pub_date, summary, segments),
+        render_markdown(show_name, episode_title, pub_date, summary, segments, language=language),
         encoding="utf-8",
     )
     return out
 
 
 def render_markdown(show_name: str, episode_title: str, pub_date: str,
-                    summary: dict, segments) -> str:
+                    summary: dict, segments, *, language: str = "zh") -> str:
     lines: list[str] = []
     lines.append(f"# {episode_title}")
     lines.append("")
@@ -81,7 +84,7 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         first = block[0]
         ts = _fmt_hms(first.start)
         speaker = f"[{first.speaker_name}] " if first.speaker_name else ""
-        text = " ".join(s.text.strip() for s in block)
+        text = repunctuate_block([s.text for s in block], language)
         lines.append(f"[{ts}] {speaker}{text}")
         translations = [s.translation.strip() for s in block if s.translation and s.translation.strip()]
         if translations:

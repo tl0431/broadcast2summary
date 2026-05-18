@@ -18,10 +18,10 @@ dependencies = [
     "opencc-python-reimplemented>=0.1.7",
     "psutil>=5.9",
     "pywhispercpp>=1.2",
-    "silero-vad>=4.0",
-    "wespeaker>=1.0",
     "onnxruntime>=1.18",
     "soundfile>=0.12",
+    "torch>=2.0",
+    "pyannote.audio>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +41,10 @@ packages = ["src/broadcast2summary"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not slow'"
+markers = [
+    "slow: real model inference, skipped by default (run with -m slow)",
+]
 
 [tool.ruff]
 line-length = 100

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ import soundfile as sf
 import torch
 
 from .transcribe import Segment
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,10 +30,15 @@ def _load_pipeline():
     from pyannote.audio import Pipeline
 
     hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        log.warning("HF_TOKEN not set — pyannote will fail on gated models; export HF_TOKEN=<your_token>")
     _pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
         token=hf_token,
     )
+    if torch.backends.mps.is_available():
+        log.info("Moving pyannote pipeline to MPS (Apple Silicon)")
+        _pipeline.to(torch.device("mps"))
     return _pipeline
 
 

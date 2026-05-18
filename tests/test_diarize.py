@@ -68,3 +68,73 @@ def test_speaker_turn_frozen():
     turn = SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=1.0)
     with pytest.raises(FrozenInstanceError):
         turn.speaker_id = "SPEAKER_01"
+
+
+# ---------------------------------------------------------------------------
+# Fixture-audio tests (sample_zh.wav / sample_en.wav — two synthetic speakers)
+# ---------------------------------------------------------------------------
+
+FIXTURES = pytest.importorskip  # just a marker; real import below
+
+
+def _fixture(name: str):
+    from pathlib import Path
+    p = Path(__file__).parent / "fixtures" / name
+    if not p.exists():
+        pytest.skip(f"fixture {name} not found")
+    return p
+
+
+def test_align_speakers_with_real_wav_fixture(monkeypatch):
+    """Fast: mock diarize_audio, verify align+output path works end-to-end."""
+    from broadcast2summary.diarize import SpeakerTurn, align_speakers
+
+    wav = _fixture("sample_zh.wav")
+
+    # Approximate speaker boundaries matching the synthesised audio
+    turns = [
+        SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=10.0),
+        SpeakerTurn(speaker_id="SPEAKER_01", start=10.0, end=20.0),
+        SpeakerTurn(speaker_id="SPEAKER_00", start=20.0, end=28.0),
+        SpeakerTurn(speaker_id="SPEAKER_01", start=28.0, end=42.0),
+        SpeakerTurn(speaker_id="SPEAKER_00", start=42.0, end=48.0),
+    ]
+    segments = [
+        Segment(start=0.0, end=10.0, text="欢迎收听今天的节目。"),
+        Segment(start=10.0, end=20.0, text="人工智能确实改变了很多行业。"),
+        Segment(start=20.0, end=28.0, text="你觉得未来五年会有哪些影响？"),
+        Segment(start=28.0, end=42.0, text="很多重复性的工作会被替代。"),
+        Segment(start=42.0, end=48.0, text="感谢你今天的分享，下期再见。"),
+    ]
+
+    out = align_speakers(segments, turns)
+    assert len(out) == 5
+    assert out[0].speaker_id == "SPEAKER_00"
+    assert out[1].speaker_id == "SPEAKER_01"
+    assert out[2].speaker_id == "SPEAKER_00"
+    assert out[3].speaker_id == "SPEAKER_01"
+    assert out[4].speaker_id == "SPEAKER_00"
+    # wav file is present (sanity)
+    assert wav.stat().st_size > 100_000
+
+
+@pytest.mark.slow
+def test_diarize_audio_detects_two_speakers_zh(monkeypatch):
+    """Slow: real pyannote inference on sample_zh.wav — expects >=2 speakers."""
+    from broadcast2summary.diarize import diarize_audio
+
+    wav = _fixture("sample_zh.wav")
+    turns = diarize_audio(wav)
+    speakers = {t.speaker_id for t in turns}
+    assert len(speakers) >= 2, f"expected >=2 speakers, got {speakers}"
+
+
+@pytest.mark.slow
+def test_diarize_audio_detects_two_speakers_en(monkeypatch):
+    """Slow: real pyannote inference on sample_en.wav — expects >=2 speakers."""
+    from broadcast2summary.diarize import diarize_audio
+
+    wav = _fixture("sample_en.wav")
+    turns = diarize_audio(wav)
+    speakers = {t.speaker_id for t in turns}
+    assert len(speakers) >= 2, f"expected >=2 speakers, got {speakers}"

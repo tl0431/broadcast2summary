@@ -47,6 +47,67 @@ def test_punctuate_segments_import_error_returns_input(monkeypatch):
     assert result == segs  # unchanged, no crash
 
 
+def test_repunctuate_block_strips_acoustic_periods_and_calls_model(monkeypatch):
+    """repunctuate_block strips Whisper's acoustic 。before merging, feeds merged text to ct-punc-c."""
+    from broadcast2summary import punctuate as punct_mod
+
+    captured = {}
+
+    class FakeModel:
+        def generate(self, input):
+            captured["input"] = input[0]
+            # model adds commas where only periods were
+            return [{"text": "今天我们要聊的是最近最火热，增长也最猛的一个赛道，AI短剧。"}]
+
+    monkeypatch.setattr(punct_mod, "_punct_model", FakeModel())
+
+    # Simulate Whisper segments: each ends with 。(acoustic break, not sentence end)
+    texts = ["今天我们要聊的是最近最火热。", "增长也最猛的一个赛道。", "Ai短剧。"]
+    result = punct_mod.repunctuate_block(texts, "zh")
+
+    # Model received stripped, merged text (no intermediate periods)
+    assert "。" not in captured["input"][:-1]   # no periods except possibly at end
+    assert captured["input"] == "今天我们要聊的是最近最火热增长也最猛的一个赛道Ai短剧"
+    # Result is the model's properly punctuated output
+    assert result == "今天我们要聊的是最近最火热，增长也最猛的一个赛道，AI短剧。"
+
+
+def test_repunctuate_block_en_joins_with_spaces(monkeypatch):
+    """For non-zh language, repunctuate_block joins with spaces and skips model."""
+    from broadcast2summary import punctuate as punct_mod
+
+    texts = ["Hello world.", "This is a test."]
+    result = punct_mod.repunctuate_block(texts, "en")
+    assert result == "Hello world. This is a test."
+
+
+def test_repunctuate_block_model_error_falls_back(monkeypatch):
+    """If ct-punc-c raises, repunctuate_block returns stripped+merged text without crashing."""
+    from broadcast2summary import punctuate as punct_mod
+
+    monkeypatch.setattr(punct_mod, "_punct_model", None)
+    monkeypatch.setattr(punct_mod, "_load_punct_model", lambda: (_ for _ in ()).throw(RuntimeError("no model")))
+
+    texts = ["大家好。", "欢迎收听。"]
+    result = punct_mod.repunctuate_block(texts, "zh")
+    assert result == "大家好欢迎收听"  # stripped+merged, no crash
+
+
+def test_repunctuate_block_preserves_question_marks_via_model(monkeypatch):
+    """Question marks should come from the model's output, not be stripped away permanently."""
+    from broadcast2summary import punctuate as punct_mod
+
+    class FakeModel:
+        def generate(self, input):
+            return [{"text": "你觉得人工智能未来五年会有哪些影响？"}]
+
+    monkeypatch.setattr(punct_mod, "_punct_model", FakeModel())
+
+    texts = ["你觉得人工智能。", "未来五年会有哪些影响？"]
+    result = punct_mod.repunctuate_block(texts, "zh")
+    assert result.endswith("？")
+
+
 def test_punctuate_segments_preserves_translation(monkeypatch):
     """translation field must be preserved after punctuation."""
     from broadcast2summary import punctuate as punct_mod
