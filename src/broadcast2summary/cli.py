@@ -83,3 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feeds_list()
     print(f"command not yet implemented: {args.cmd}", file=sys.stderr)
     return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
