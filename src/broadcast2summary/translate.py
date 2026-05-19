@@ -3,27 +3,52 @@ import json
 from .transcribe import Segment
 
 
+def _group_by_speaker(segments: list[Segment], gap_threshold: float = 5.0) -> list[list[Segment]]:
+    if not segments:
+        return []
+    groups: list[list[Segment]] = []
+    current = [segments[0]]
+    for seg in segments[1:]:
+        prev = current[-1]
+        speaker_changed = (seg.speaker_name or seg.speaker_id) != (prev.speaker_name or prev.speaker_id)
+        time_gap = seg.start - prev.end > gap_threshold
+        if speaker_changed or time_gap:
+            groups.append(current)
+            current = [seg]
+        else:
+            current.append(seg)
+    groups.append(current)
+    return groups
+
+
 def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment]:
     """Batch-translate English segments to Chinese via DeepSeek.
 
-    Sends all segment texts in ONE API call as a JSON array.
-    Returns new Segment list with .translation field populated.
+    Groups segments into speaker-turn paragraphs first, translates each
+    paragraph as a unit, and stores the translation on the first segment
+    of each group. This prevents sentence bleeding across group boundaries.
     """
     if not segments:
         return segments
 
-    texts = [s.text for s in segments]
+    groups = _group_by_speaker(segments)
+    texts = [" ".join(s.text for s in group) for group in groups]
     prompt = (
-        "将以下英文播客转写片段翻译成中文。\n"
+        "将以下英文播客段落逐段翻译成中文。\n"
         "严格按 JSON 数组返回,顺序与输入一致,每条只有 \"t\" 字段:\n\n"
         f"{json.dumps(texts, ensure_ascii=False)}\n\n"
         "返回格式: [{\"t\": \"译文1\"}, {\"t\": \"译文2\"}, ...]"
     )
     raw = deepseek_client.complete(prompt, temperature=0.1)
     translations = json.loads(raw)
-    return [
-        Segment(start=s.start, end=s.end, text=s.text,
-                translation=t.get("t", ""),
-                speaker_id=s.speaker_id, speaker_name=s.speaker_name)
-        for s, t in zip(segments, translations)
-    ]
+
+    result: list[Segment] = []
+    for group, trans in zip(groups, translations):
+        translation_text = trans.get("t", "")
+        for i, seg in enumerate(group):
+            result.append(Segment(
+                start=seg.start, end=seg.end, text=seg.text,
+                translation=translation_text if i == 0 else "",
+                speaker_id=seg.speaker_id, speaker_name=seg.speaker_name,
+            ))
+    return result
