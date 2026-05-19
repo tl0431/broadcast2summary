@@ -3,20 +3,20 @@ from broadcast2summary.transcribe import Segment
 
 
 def test_translate_segments_returns_translation_field(monkeypatch):
-    """translate_segments populates .translation on each Segment."""
+    """translate_segments groups by speaker; first segment of each group gets translation."""
     from broadcast2summary.translate import translate_segments
 
     class FakeDeepSeek:
         def complete(self, prompt, *, temperature):
-            # Return translations for 2 segments
             return json.dumps([{"t": "你好世界"}, {"t": "这是测试"}])
 
+    # Use different speakers so they form separate groups
     segs = [
-        Segment(start=0.0, end=5.0, text="Hello world"),
-        Segment(start=5.0, end=10.0, text="This is a test"),
+        Segment(start=0.0, end=5.0, text="Hello world", speaker_id="SPEAKER_00"),
+        Segment(start=5.0, end=10.0, text="This is a test", speaker_id="SPEAKER_01"),
     ]
     result = translate_segments(segs, FakeDeepSeek())
-    assert result[0].text == "Hello world"       # original preserved
+    assert result[0].text == "Hello world"
     assert result[0].translation == "你好世界"
     assert result[1].text == "This is a test"
     assert result[1].translation == "这是测试"

@@ -32,7 +32,7 @@ _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS = """{{
   "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
   "guests": ["嘉宾姓名列表"],
   "actionable_items": ["听众可执行的具体建议,可空"],
-  "speaker_names": {{"SPEAKER_00": "嘉宾真名或null", "SPEAKER_01": null}}
+  "speaker_names": {{"SPEAKER_00": {{"name": "嘉宾真名或null", "confidence": 0.9}}, "SPEAKER_01": {{"name": null, "confidence": 0.0}}}}
 }}"""
 
 _SUMMARY_REQUIREMENTS_BASE = """要求:
@@ -43,7 +43,8 @@ _SUMMARY_REQUIREMENTS_BASE = """要求:
 5. 原始转写来自 ASR,可能存在同音字误识或英文术语错拼(例:CAR-T 被识别成 Carty)。摘要里使用通用规范写法,不要复刻原文错字。完整转写本身保持 ASR 原貌,作为可追溯证据。"""
 
 _SUMMARY_REQUIREMENTS_WITH_SPEAKERS = _SUMMARY_REQUIREMENTS_BASE + """
-6. 如果转写包含 [SPEAKER_XX] 标注,在 speaker_names 字段返回每个说话人的真实姓名(从内容推断)。无法确定的填 null。"""
+6. 如果转写包含 [SPEAKER_XX] 标注,在 speaker_names 字段为每个说话人返回 {{"name": 真实姓名或null, "confidence": 置信度}}。
+   confidence 评分规则(0.0-1.0): 1.0=本人明确自我介绍; 0.8-0.9=被主持人点名且紧跟发言; 0.5-0.7=上下文强烈暗示但无直接确认; 0.1-0.4=模糊线索; 0.0=无法判断(name填null)。"""
 
 SUMMARY_PROMPT = (
     _SUMMARY_PROMPT_HEADER

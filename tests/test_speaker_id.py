@@ -1,81 +1,65 @@
 from broadcast2summary.transcribe import Segment
 
 
-def test_confirmed_self_intro_zh():
+def _seg(sid, text, start=0.0, end=5.0):
+    return Segment(start=start, end=end, text=text, speaker_id=sid)
+
+
+# --- new confidence-dict format ---
+
+def test_high_confidence_no_question_mark():
     from broadcast2summary.speaker_id import apply_speaker_names
-
-    segments = [
-        Segment(
-            start=0.0,
-            end=5.0,
-            text="大家好，我是雅贤",
-            speaker_id="SPEAKER_00",
-        ),
-    ]
-    out = apply_speaker_names(segments, {"SPEAKER_00": "雅贤"})
-    assert out[0].speaker_name == "雅贤"
+    segs = [_seg("SPEAKER_00", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_00": {"name": "Satya Nadella", "confidence": 0.9}})
+    assert out[0].speaker_name == "Satya Nadella"
 
 
-def test_confirmed_by_address_en():
+def test_exact_threshold_no_question_mark():
     from broadcast2summary.speaker_id import apply_speaker_names
-
-    segments = [
-        Segment(
-            start=0.0,
-            end=3.0,
-            text="Bryan Johnson thanks for coming",
-            speaker_id="SPEAKER_01",
-        ),
-        Segment(
-            start=4.0,
-            end=8.0,
-            text="Thanks for having me",
-            speaker_id="SPEAKER_00",
-        ),
-    ]
-    out = apply_speaker_names(segments, {"SPEAKER_00": "Bryan Johnson"})
-    assert out[1].speaker_name == "Bryan Johnson"
+    segs = [_seg("SPEAKER_00", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_00": {"name": "Satya Nadella", "confidence": 0.6}})
+    assert out[0].speaker_name == "Satya Nadella"
 
 
-def test_uncertain_name_mentioned():
+def test_below_threshold_question_mark():
     from broadcast2summary.speaker_id import apply_speaker_names
-
-    segments = [
-        Segment(
-            start=0.0,
-            end=10.0,
-            text="今天雅贤会和我们聊聊产品",
-            speaker_id="SPEAKER_01",
-        ),
-        Segment(
-            start=10.0,
-            end=20.0,
-            text="好的开始吧",
-            speaker_id="SPEAKER_00",
-        ),
-    ]
-    out = apply_speaker_names(segments, {"SPEAKER_00": "雅贤"})
-    assert out[1].speaker_name == "雅贤?"
+    segs = [_seg("SPEAKER_00", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_00": {"name": "Satya Nadella", "confidence": 0.5}})
+    assert out[0].speaker_name == "Satya Nadella?"
 
 
-def test_unknown_no_name():
+def test_zero_confidence_falls_back_to_speaker_id():
     from broadcast2summary.speaker_id import apply_speaker_names
-
-    segments = [
-        Segment(
-            start=0.0,
-            end=5.0,
-            text="嘉宾是张三",
-            speaker_id="SPEAKER_02",
-        ),
-    ]
-    out = apply_speaker_names(segments, {"SPEAKER_02": None})
+    segs = [_seg("SPEAKER_02", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_02": {"name": None, "confidence": 0.0}})
     assert out[0].speaker_name == "SPEAKER_02"
 
 
-def test_apply_speaker_names_no_speaker_id():
+def test_null_name_falls_back_to_speaker_id():
     from broadcast2summary.speaker_id import apply_speaker_names
+    segs = [_seg("SPEAKER_02", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_02": {"name": None, "confidence": 0.8}})
+    assert out[0].speaker_name == "SPEAKER_02"
 
-    segments = [Segment(start=0.0, end=5.0, text="hello")]
-    out = apply_speaker_names(segments, {"SPEAKER_00": "雅贤"})
+
+# --- legacy plain-string format (backward compat) ---
+
+def test_legacy_plain_string_treated_as_confident():
+    from broadcast2summary.speaker_id import apply_speaker_names
+    segs = [_seg("SPEAKER_00", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_00": "雅贤"})
+    assert out[0].speaker_name == "雅贤"
+
+
+def test_legacy_null_falls_back_to_speaker_id():
+    from broadcast2summary.speaker_id import apply_speaker_names
+    segs = [_seg("SPEAKER_02", "hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_02": None})
+    assert out[0].speaker_name == "SPEAKER_02"
+
+
+def test_no_speaker_id_segment_unchanged():
+    from broadcast2summary.speaker_id import apply_speaker_names
+    segs = [Segment(start=0.0, end=5.0, text="hello")]
+    out = apply_speaker_names(segs, {"SPEAKER_00": {"name": "雅贤", "confidence": 0.9}})
     assert out[0].speaker_name is None
