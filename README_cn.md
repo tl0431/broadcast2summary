@@ -18,7 +18,7 @@
 - **摘要**：结构化 JSON（TL;DR、要点、章节、金句、资源）via DeepSeek 或 Claude
 - **输出渠道**：
   - 本地 Markdown 归档（`~/Knowledge/broadcast/archive/`）
-  - 飞书知识库页面
+  - 飞书云文档（写入指定云文件夹）
   - 飞书 IM 推送
 - **定时任务**：macOS launchd（每天 23:00，重启后自动恢复）
 - **低成本模式**：`--cheap` 切换到小模型，适合开发调试
@@ -65,7 +65,10 @@ pip install -e ".[dev]"           # 或: uv pip install -e ".[dev]"
 
 pyannote/speaker-diarization-3.1 是受限模型，首次使用需要：
 1. 注册 [huggingface.co](https://huggingface.co) 账号
-2. 接受模型使用条款：[pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 和 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+2. 接受以下三个模型的使用条款：
+   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+   - [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)
 3. 在 [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) 生成 Access Token
 
 模型（约 1 GB）在首次运行时自动下载。
@@ -90,7 +93,7 @@ lark-cli auth login   # 完成一次性授权，凭证存储在本地
 | `HF_TOKEN` | 是（说话人分离） | 从 HuggingFace 下载 pyannote 受限模型 |
 | `ANTHROPIC_API_KEY` | 否 | Claude 备用摘要 |
 | `LARK_IM_TARGET_OPEN_ID` | 否 | 飞书 IM 推送目标（用户 open_id） |
-| `LARK_WIKI_ROOT_TOKEN` | 否 | 知识库根节点 token（兜底） |
+| `LARK_WIKI_ROOT_TOKEN` | 否 | 兜底文件夹 token（未配置单集时使用） |
 | `LARK_FOLDER_TOKEN` | 否 | 云文档文件夹 token |
 
 写入 shell 配置文件或放到 `.env`（已加入 .gitignore）。

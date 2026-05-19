@@ -18,7 +18,7 @@ A local-first podcast pipeline that subscribes to feeds, transcribes episodes on
 - **Summarization**: structured JSON (TL;DR, key points, chapters, quotes, resources) via DeepSeek or Claude
 - **Outputs**:
   - Local Markdown archive (`~/Knowledge/broadcast/archive/`)
-  - Lark (Feishu) Wiki page
+  - Lark (Feishu) cloud document saved to a specified folder
   - Lark IM push notification
 - **Scheduling**: macOS launchd (daily at 23:00, survives reboots)
 - **Cheap mode**: swap to smaller models for fast iteration
@@ -67,7 +67,10 @@ Before running, make sure you have:
 
 pyannote/speaker-diarization-3.1 is a gated model. You must:
 1. Create a free account at [huggingface.co](https://huggingface.co)
-2. Accept the model terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+2. Accept the model terms for all three models:
+   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+   - [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)
 3. Generate an access token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
 
 Models are downloaded automatically on first run (~1 GB total).
@@ -92,7 +95,7 @@ Then get your tokens from the Feishu admin console:
 | `HF_TOKEN` | Yes (diarization) | Download pyannote gated models from HuggingFace |
 | `ANTHROPIC_API_KEY` | No | Fallback summarizer (Claude) |
 | `LARK_IM_TARGET_OPEN_ID` | No | Lark IM push target (your user open_id) |
-| `LARK_WIKI_ROOT_TOKEN` | No | Fallback wiki root node token |
+| `LARK_WIKI_ROOT_TOKEN` | No | Fallback folder token (used when per-feed folder not set) |
 | `LARK_FOLDER_TOKEN` | No | Folder token for wiki documents |
 
 Export in your shell profile or put in a `.env` file (gitignored).
