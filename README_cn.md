@@ -59,13 +59,39 @@ source .venv/bin/activate
 pip install -e ".[dev]"           # 或: uv pip install -e ".[dev]"
 ```
 
+### 前置条件
+
+**1. HuggingFace Token**（说话人分离必须）
+
+pyannote/speaker-diarization-3.1 是受限模型，首次使用需要：
+1. 注册 [huggingface.co](https://huggingface.co) 账号
+2. 接受模型使用条款：[pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 和 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+3. 在 [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) 生成 Access Token
+
+模型（约 1 GB）在首次运行时自动下载。
+
+**2. 飞书 CLI**（仅飞书输出需要）
+
+```bash
+pip install lark-cli
+lark-cli auth login   # 完成一次性授权，凭证存储在本地
+```
+
+然后从飞书管理后台获取以下 token：
+- **文件夹 token**：打开飞书云文档文件夹 → 从 URL 复制
+- **知识库根节点 token**：打开知识库根节点 → 从 URL 复制
+- **IM open_id**：通过飞书开发者工具或机器人 webhook 获取
+
 ### API Key 配置
 
 | Key | 是否必须 | 用途 |
 |-----|---------|------|
 | `DEEPSEEK_API_KEY` | 是 | 摘要 + 翻译 |
+| `HF_TOKEN` | 是（说话人分离） | 从 HuggingFace 下载 pyannote 受限模型 |
 | `ANTHROPIC_API_KEY` | 否 | Claude 备用摘要 |
-| `LARK_APP_ID` / `LARK_APP_SECRET` | 否 | 飞书知识库 + IM 推送 |
+| `LARK_IM_TARGET_OPEN_ID` | 否 | 飞书 IM 推送目标（用户 open_id） |
+| `LARK_WIKI_ROOT_TOKEN` | 否 | 知识库根节点 token（兜底） |
+| `LARK_FOLDER_TOKEN` | 否 | 云文档文件夹 token |
 
 写入 shell 配置文件或放到 `.env`（已加入 .gitignore）。
 

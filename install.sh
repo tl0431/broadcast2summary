@@ -77,14 +77,36 @@ info "Running smoke test..."
 python -m broadcast2summary test --component rss && info "Smoke test passed" \
   || warn "Smoke test failed — check your config before running"
 
+# ── HuggingFace check ────────────────────────────────────────────────────────
+if [[ -z "${HF_TOKEN:-}" ]]; then
+    warn "HF_TOKEN is not set. Speaker diarization (pyannote) requires a HuggingFace token."
+    warn "  1. Sign up at https://huggingface.co"
+    warn "  2. Accept model terms at https://huggingface.co/pyannote/speaker-diarization-3.1"
+    warn "  3. Generate a token at https://huggingface.co/settings/tokens"
+    warn "  4. Add HF_TOKEN=hf_... to your .env or shell profile"
+else
+    info "HF_TOKEN found"
+fi
+
+# ── lark-cli check ────────────────────────────────────────────────────────────
+if ! command -v lark-cli &>/dev/null; then
+    warn "lark-cli not found — Lark/Feishu output will be disabled."
+    warn "  Install: pip install lark-cli && lark-cli auth login"
+else
+    info "lark-cli found"
+fi
+
 # ── Next steps ────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}Installation complete.${NC} Next steps:"
 echo ""
 echo "  1. Add your API keys to .env:"
-echo "       DEEPSEEK_API_KEY=sk-..."
-echo "       ANTHROPIC_API_KEY=sk-ant-...  (optional)"
-echo "       LARK_APP_ID=...               (optional, for Lark output)"
+echo "       DEEPSEEK_API_KEY=sk-...          (required)"
+echo "       HF_TOKEN=hf_...                  (required for speaker diarization)"
+echo "       ANTHROPIC_API_KEY=sk-ant-...      (optional, Claude fallback)"
+echo "       LARK_IM_TARGET_OPEN_ID=ou_...     (optional, Lark IM push)"
+echo "       LARK_WIKI_ROOT_TOKEN=wikcn_...    (optional, Lark wiki)"
+echo "       LARK_FOLDER_TOKEN=...             (optional, Lark folder)"
 echo ""
 echo "  2. Edit config/feeds.yaml to add podcast subscriptions"
 echo ""
