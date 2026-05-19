@@ -68,7 +68,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     turns: list = []
     if deps.diarization_enabled:
         try:
-            _assert_memory_available(required_gb=2.5, stage="diarization")
+            _assert_memory_available(required_gb=2.0, stage="diarization")
             turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
         except Exception:
             logger.exception(
@@ -91,9 +91,10 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
 
     # ---- align speakers ----
     if turns:
+        aligned_segs = align_speakers(transcription.segments, turns)
         transcription = TranscriptionResult(
             language=transcription.language,
-            segments=align_speakers(transcription.segments, turns),
+            segments=aligned_segs,
         )
 
     # ---- summarize ----

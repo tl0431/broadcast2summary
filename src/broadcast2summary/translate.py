@@ -23,6 +23,7 @@ def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment
     translations = json.loads(raw)
     return [
         Segment(start=s.start, end=s.end, text=s.text,
-                translation=t.get("t", ""))
+                translation=t.get("t", ""),
+                speaker_id=s.speaker_id, speaker_name=s.speaker_name)
         for s, t in zip(segments, translations)
     ]
