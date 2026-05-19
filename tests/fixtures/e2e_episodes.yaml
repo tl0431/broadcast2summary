@@ -1,0 +1,30 @@
+# End-to-end validation episodes
+# Run with: python -m broadcast2summary.cli fetch-one <audio_url>
+# These episodes have been manually verified for correct output quality.
+
+episodes:
+  - id: kzzdkj_s10e11
+    name: 科技早知道 S10E11
+    description: 中文播客，单说话人主导，有嘉宾，测试中文转写+摘要
+    audio_url: https://aphid.fireside.fm/d/1437767933/4931937e-0184-4c61-a658-6b03c254754d/3c05e3d5-d8f6-44c1-97ca-698261d7b2bc.mp3
+    language: zh
+    expected:
+      language: zh
+      min_segments: 50
+      has_translation: false
+      expected_archive: ~/Knowledge/broadcast/archive/manual/
+
+  - id: allin_satya_davos
+    name: All-In — Satya Nadella at Davos
+    description: 英文播客，多说话人（Sacks主持+Satya），测试EN转写+说话人识别+中文翻译
+    page_url: https://podcasts.apple.com/cn/podcast/all-in-with-chamath-jason-sacks-friedberg/id1502871393?i=1000746115714
+    audio_url: https://dts.podtrac.com/redirect.mp3/traffic.libsyn.com/secure/allinchamathjason/USAHouse_Davos_Satya_Ch.mp3?dest-id=1928300
+    language: en
+    expected:
+      language: en
+      min_segments: 100
+      has_translation: true
+      speaker_names:
+        - Satya Nadella
+        - David Sacks
+      expected_archive: ~/Knowledge/broadcast/archive/manual/
