@@ -12,7 +12,7 @@ from .config import AppConfig, load_config
 from .state import State
 from .rss import parse_feed, filter_new_episodes, Episode
 from .download import download_audio
-from .transcribe import FasterWhisperBackend
+from .transcribe import FasterWhisperBackend, WhisperCppBackend
 from .summarize import DeepSeekClient, ClaudeClient
 from .lark_client import LarkClient
 from .pipeline import process_episode, PipelineDeps
@@ -237,19 +237,47 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
 def cmd_fetch_one(url: str, *, cheap: bool = False,
                   title: str | None = None) -> int:
     import hashlib
+    from .url_resolver import EpisodeMeta, resolve_url
+
     cfg = _load()
     state_dir = cfg.paths.state_dir
     state_dir.mkdir(parents=True, exist_ok=True)
     state = State(state_dir / "processed.db")
     state.init_schema()
 
-    guid = hashlib.md5(url.encode()).hexdigest()[:16]
+    is_direct_mp3 = (
+        url.endswith(".mp3") or ".mp3?" in url or "redirect.mp3" in url
+    )
+    if is_direct_mp3:
+        meta = EpisodeMeta(
+            title=title or url.split("/")[-1].split("?")[0],
+            audio_url=url,
+            pub_date=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            duration_seconds=0,
+        )
+    else:
+        import sys
+
+        try:
+            meta = resolve_url(url)
+        except ValueError as exc:
+            print(f"fetch-one resolve failed: {exc}", file=sys.stderr)
+            return 1
+        if title:
+            meta = EpisodeMeta(
+                title=title,
+                audio_url=meta.audio_url,
+                pub_date=meta.pub_date,
+                duration_seconds=meta.duration_seconds,
+            )
+
+    guid = hashlib.md5(meta.audio_url.encode()).hexdigest()[:16]
     ep = Episode(
         guid=guid,
-        title=title or url.split("/")[-1].split("?")[0],
-        pub_date=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        audio_url=url,
-        duration_seconds=0,
+        title=meta.title,
+        pub_date=meta.pub_date or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        audio_url=meta.audio_url,
+        duration_seconds=meta.duration_seconds,
         feed_name="manual",
         language="zh",          # Whisper auto-detect will override via transcription.language
         wiki_node_token=None,   # uses lark_folder_token root fallback
@@ -297,15 +325,24 @@ def _already_processed(state: State, episodes) -> set[str]:
     return {e.guid for e in episodes if state.is_processed(e.guid)}
 
 
+def _make_transcribe_backend(cfg: AppConfig, *, cheap: bool):
+    if cfg.transcribe.backend == "whisper_cpp":
+        return WhisperCppBackend(
+            cheap=cheap,
+            convert_traditional=cfg.transcribe.convert_traditional,
+        )
+    return FasterWhisperBackend(
+        cheap=cheap,
+        batch_size=cfg.transcribe.batch_size,
+        convert_traditional=cfg.transcribe.convert_traditional,
+    )
+
+
 def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
                 *, cheap: bool = False) -> PipelineDeps:
     return PipelineDeps(
         state=state,
-        transcribe_backend=FasterWhisperBackend(
-            cheap=cheap,
-            batch_size=cfg.transcribe.batch_size,
-            convert_traditional=cfg.transcribe.convert_traditional,
-        ),
+        transcribe_backend=_make_transcribe_backend(cfg, cheap=cheap),
         archive_root=paths.archive_root,
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
@@ -314,6 +351,8 @@ def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
         wiki_root=cfg.lark_wiki_root_token,
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
+        diarization_enabled=cfg.transcribe.diarization,
+        max_speakers=cfg.transcribe.max_speakers,
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
         claude=ClaudeClient(
@@ -337,6 +376,9 @@ def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
         "l3_enabled": cfg.defaults.quality_l3_enabled,
         "batch_size": cfg.transcribe.batch_size,
         "convert_traditional": cfg.transcribe.convert_traditional,
+        "transcribe_backend": cfg.transcribe.backend,
+        "diarization_enabled": cfg.transcribe.diarization,
+        "max_speakers": cfg.transcribe.max_speakers,
         "cheap": cheap,
     }
 
@@ -344,7 +386,8 @@ def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
 def _run_in_worker(ep: Episode, deps_args: dict):
     from pathlib import Path as _P
     from .state import State
-    from .transcribe import FasterWhisperBackend
+    from .config import TranscribeConfig
+    from .transcribe import FasterWhisperBackend, WhisperCppBackend
     from .summarize import DeepSeekClient, ClaudeClient
     from .lark_client import LarkClient
     from .download import download_audio
@@ -355,13 +398,25 @@ def _run_in_worker(ep: Episode, deps_args: dict):
     state = State(state_dir / "processed.db")
     state.init_schema()
     cheap = bool(deps_args["cheap"])
+    transcribe_cfg = TranscribeConfig(
+        backend=deps_args.get("transcribe_backend", "whisper_cpp"),
+        batch_size=int(deps_args["batch_size"]),
+        convert_traditional=bool(deps_args["convert_traditional"]),
+    )
+    if transcribe_cfg.backend == "whisper_cpp":
+        transcribe_backend = WhisperCppBackend(
+            cheap=cheap,
+            convert_traditional=transcribe_cfg.convert_traditional,
+        )
+    else:
+        transcribe_backend = FasterWhisperBackend(
+            cheap=cheap,
+            batch_size=transcribe_cfg.batch_size,
+            convert_traditional=transcribe_cfg.convert_traditional,
+        )
     deps = PipelineDeps(
         state=state,
-        transcribe_backend=FasterWhisperBackend(
-            cheap=cheap,
-            batch_size=int(deps_args["batch_size"]),
-            convert_traditional=bool(deps_args["convert_traditional"]),
-        ),
+        transcribe_backend=transcribe_backend,
         archive_root=archive_root,
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
@@ -370,6 +425,8 @@ def _run_in_worker(ep: Episode, deps_args: dict):
         wiki_root=deps_args["wiki_root"],
         download_fn=download_audio,
         l3_enabled=bool(deps_args["l3_enabled"]),
+        diarization_enabled=bool(deps_args.get("diarization_enabled", True)),
+        max_speakers=int(deps_args.get("max_speakers", 6)),
         lark=LarkClient(),
         deepseek=DeepSeekClient(api_key=deps_args["deepseek_api_key"], cheap=cheap),
         claude=ClaudeClient(

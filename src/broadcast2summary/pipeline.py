@@ -8,7 +8,9 @@ import shutil
 import traceback
 from .rss import Episode
 from .state import State, EpisodeRecord, FailedRecord
-from .transcribe import TranscribeBackend, transcribe_audio
+from .transcribe import TranscribeBackend, transcribe_audio, TranscriptionResult
+from .diarize import diarize_audio, align_speakers, release_pipeline
+from .speaker_id import apply_speaker_names
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
 from .output_local import write_local_markdown, render_markdown
 from .output_im import push_summary_to_im
@@ -35,6 +37,8 @@ class PipelineDeps:
     deepseek: LLMClient | None = None
     claude: LLMClient | None = None
     summarize_stubs: SummarizeStubs | None = None
+    diarization_enabled: bool = True
+    max_speakers: int = 6
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,20 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     except Exception as e:
         return _record_failure(deps, ep, "download", e, now, mp3_path=None)
 
+    # ---- diarize (before transcribe so pyannote releases ~2GB before Whisper loads) ----
+    turns: list = []
+    if deps.diarization_enabled:
+        try:
+            _assert_memory_available(required_gb=2.5, stage="diarization")
+            turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
+        except Exception:
+            logger.exception(
+                "diarization failed for %s — continuing without speaker labels",
+                ep.guid,
+            )
+        finally:
+            release_pipeline()
+
     # ---- transcribe ----
     try:
         transcription = transcribe_audio(audio_path, backend=deps.transcribe_backend)
@@ -70,6 +88,13 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         kept_mp3 = failed_dir / "audio.mp3"
         shutil.move(str(audio_path), str(kept_mp3))
         return _record_failure(deps, ep, "transcribe", e, now, mp3_path=kept_mp3)
+
+    # ---- align speakers ----
+    if turns:
+        transcription = TranscriptionResult(
+            language=transcription.language,
+            segments=align_speakers(transcription.segments, turns),
+        )
 
     # ---- summarize ----
     transcript_full = transcription.full_text()
@@ -84,6 +109,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             transcript_full=transcript_full,
             l3_enabled=deps.l3_enabled,
             deepseek=deps.deepseek, claude=deps.claude, stubs=deps.summarize_stubs,
+            include_speaker_names=deps.diarization_enabled,
         )
     except SummarizeFailure as e:
         audio_path.unlink(missing_ok=True)
@@ -103,12 +129,17 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     else:
         translated_segments = transcription.segments
 
+    if deps.diarization_enabled:
+        speaker_names = summary.parsed.get("speaker_names") or {}
+        translated_segments = apply_speaker_names(translated_segments, speaker_names)
+
     # ---- local markdown (core artifact — failure = episode failed) ----
     try:
         local_path = write_local_markdown(
             archive_root=deps.archive_root,
             show_name=ep.feed_name, episode_title=ep.title,
             pub_date=ep.pub_date, summary=summary.parsed, segments=translated_segments,
+            language=effective_language,
         )
     except Exception as e:
         audio_path.unlink(missing_ok=True)
@@ -126,6 +157,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 markdown_body=render_markdown(
                     ep.feed_name, ep.title, ep.pub_date,
                     summary.parsed, translated_segments,
+                    language=effective_language,
                 ),
             )
             wiki_token = wiki_result.doc_token
@@ -180,3 +212,15 @@ def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,
 
 def _safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in s)[:120]
+
+
+def _assert_memory_available(required_gb: float, stage: str) -> None:
+    try:
+        import psutil
+        avail = psutil.virtual_memory().available / 1e9
+        if avail < required_gb:
+            raise MemoryError(
+                f"{stage}: need {required_gb:.1f}GB free, {avail:.1f}GB available — skipping"
+            )
+    except ImportError:
+        pass

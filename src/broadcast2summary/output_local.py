@@ -2,6 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from .punctuate import repunctuate_block
+
 
 _UNSAFE = re.compile(r"[\\/:\*\?\"<>\|\x00-\x1f]")
 
@@ -24,6 +26,7 @@ def write_local_markdown(
     pub_date: str,
     summary: dict,
     segments,
+    language: str = "zh",
 ) -> Path:
     show_dir = archive_root / _safe_filename(show_name)
     show_dir.mkdir(parents=True, exist_ok=True)
@@ -31,14 +34,14 @@ def write_local_markdown(
     filename = f"{date_part}-{_safe_filename(episode_title)}.md"
     out = show_dir / filename
     out.write_text(
-        render_markdown(show_name, episode_title, pub_date, summary, segments),
+        render_markdown(show_name, episode_title, pub_date, summary, segments, language=language),
         encoding="utf-8",
     )
     return out
 
 
 def render_markdown(show_name: str, episode_title: str, pub_date: str,
-                    summary: dict, segments) -> str:
+                    summary: dict, segments, *, language: str = "zh") -> str:
     lines: list[str] = []
     lines.append(f"# {episode_title}")
     lines.append("")
@@ -77,10 +80,34 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         lines.append("")
     lines.append("## 完整转写")
     lines.append("")
-    for i, seg in enumerate(segments):
-        ts = _fmt_hms(seg.start)
-        lines.append(f"[{ts}] {seg.text.strip()}")
-        if seg.translation and seg.translation.strip():
-            lines.append(f"[译] {seg.translation.strip()}")
-        lines.append("")  # blank line after every segment = paragraph break in Lark
+    for block in _group_segments(segments):
+        first = block[0]
+        ts = _fmt_hms(first.start)
+        label = first.speaker_name or first.speaker_id
+        speaker = f"[{label}] " if label else ""
+        text = repunctuate_block([s.text for s in block], language)
+        lines.append(f"[{ts}] {speaker}{text}")
+        translations = [s.translation.strip() for s in block if s.translation and s.translation.strip()]
+        if translations:
+            lines.append(f"[译] {' '.join(translations)}")
+        lines.append("")
     return "\n".join(lines)
+
+
+def _group_segments(segments, *, gap_threshold: float = 5.0) -> list:
+    """Merge consecutive same-speaker segments into paragraph blocks."""
+    if not segments:
+        return []
+    blocks: list[list] = []
+    current = [segments[0]]
+    for seg in segments[1:]:
+        prev = current[-1]
+        speaker_changed = (seg.speaker_name or seg.speaker_id) != (prev.speaker_name or prev.speaker_id)
+        time_gap = seg.start - prev.end > gap_threshold
+        if speaker_changed or time_gap:
+            blocks.append(current)
+            current = [seg]
+        else:
+            current.append(seg)
+    blocks.append(current)
+    return blocks

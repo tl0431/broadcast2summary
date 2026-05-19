@@ -60,6 +60,7 @@ def summarize(
     deepseek: LLMClient | None = None,
     claude: LLMClient | None = None,
     stubs: SummarizeStubs | None = None,
+    include_speaker_names: bool = True,
 ) -> Summary:
     prompt = render_summary_prompt(
         show_name=show_name,
@@ -67,6 +68,7 @@ def summarize(
         duration_minutes=duration_minutes,
         transcript_with_timestamps=transcript_with_timestamps,
         guests_hint=guests_hint,
+        include_speaker_names=include_speaker_names,
     )
 
     # ---- attempt 1: DeepSeek @ 0.3 ----

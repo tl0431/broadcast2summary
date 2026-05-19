@@ -240,3 +240,271 @@ def test_im_failure_does_not_prevent_success(tmp_path: Path, fixtures_dir):
     assert result.success is True, f"expected success but got: {result.error}"
     assert state.is_processed("g2") is True
 
+
+def test_diarization_disabled_skips_diarize_and_apply_speaker_names(
+    tmp_path: Path, fixtures_dir, monkeypatch,
+):
+    diarize_called = []
+    apply_called = []
+
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.diarize_audio",
+        lambda *a, **k: diarize_called.append(1) or [],
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.apply_speaker_names",
+        lambda segs, names, **kw: apply_called.append(names) or segs,
+    )
+
+    summarize_kwargs = []
+
+    def capture_summarize(**kwargs):
+        summarize_kwargs.append(kwargs)
+        from broadcast2summary.summarize import SummarizeFailure
+        raise SummarizeFailure("stop after summarize capture")
+
+    monkeypatch.setattr("broadcast2summary.pipeline.summarize", capture_summarize)
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    transcript_file = tmp_path / "t.json"
+    transcript_file.write_text(
+        json.dumps({"language": "zh", "segments": [{"start": 0.0, "end": 5.0, "text": "x" * 500}]}),
+        encoding="utf-8",
+    )
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(deepseek=[summary_json, summary_json], claude=[summary_json]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=False,
+    )
+    ep = Episode(
+        guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+    result = process_episode(ep, deps=deps)
+    assert diarize_called == []
+    assert apply_called == []
+    assert summarize_kwargs
+    assert summarize_kwargs[0]["include_speaker_names"] is False
+    assert result.failed_stage == "summarize"
+
+
+def test_diarization_failure_does_not_crash(tmp_path: Path, fixtures_dir, monkeypatch):
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    segments = [{"start": float(i), "end": float(i + 5), "text": "x" * 200} for i in range(0, 500, 5)]
+    transcript_file = tmp_path / "t.json"
+    transcript_file.write_text(json.dumps({"language": "zh", "segments": segments}), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.diarize_audio",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("vad fail")),
+    )
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(deepseek=[summary_json, summary_json], claude=[summary_json]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=True,
+    )
+    ep = Episode(
+        guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+    result = process_episode(ep, deps=deps)
+    assert result.success is True
+
+
+def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, monkeypatch):
+    from broadcast2summary.diarize import SpeakerTurn
+    from broadcast2summary.transcribe import Segment
+
+    align_called = []
+
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+
+    def fake_diarize(audio_path, max_speakers=6):
+        return [SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=10.0)]
+
+    def fake_align(segments, turns):
+        align_called.append((segments, turns))
+        return [
+            Segment(
+                start=s.start, end=s.end, text=s.text,
+                speaker_id="SPEAKER_00",
+            )
+            for s in segments
+        ]
+
+    monkeypatch.setattr("broadcast2summary.pipeline.diarize_audio", fake_diarize)
+    monkeypatch.setattr("broadcast2summary.pipeline.align_speakers", fake_align)
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    transcript_file = tmp_path / "t.json"
+    transcript_file.write_text(
+        json.dumps({"language": "zh", "segments": [{"start": 0.0, "end": 5.0, "text": "x" * 500}]}),
+        encoding="utf-8",
+    )
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(deepseek=[summary_json, summary_json], claude=[summary_json]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=True,
+    )
+    ep = Episode(
+        guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+    process_episode(ep, deps=deps)
+    assert len(align_called) == 1
+
+
+def test_diarization_runs_before_transcription(tmp_path: Path, monkeypatch):
+    """Diarize must complete and release pipeline before transcribe starts."""
+    call_order = []
+
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.diarize_audio",
+        lambda *a, **k: call_order.append("diarize") or [],
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.release_pipeline",
+        lambda: call_order.append("release"),
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.transcribe_audio",
+        lambda path, backend: call_order.append("transcribe") or __import__(
+            "broadcast2summary.transcribe", fromlist=["TranscriptionResult"]
+        ).TranscriptionResult(language="zh", segments=[]),
+    )
+
+    def boom_summarize(**kwargs):
+        from broadcast2summary.summarize import SummarizeFailure
+        raise SummarizeFailure("stop here")
+
+    monkeypatch.setattr("broadcast2summary.pipeline.summarize", boom_summarize)
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(tmp_path / "nope.json"),
+        summarize_stubs=SummarizeStubs(),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=True,
+    )
+    ep = Episode(guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+                 audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test")
+    process_episode(ep, deps=deps)
+
+    assert "diarize" in call_order
+    assert "transcribe" in call_order
+    assert call_order.index("diarize") < call_order.index("transcribe"), (
+        f"diarize must run before transcribe, got order: {call_order}"
+    )
+    assert call_order.index("release") < call_order.index("transcribe"), (
+        f"release must run before transcribe, got order: {call_order}"
+    )
+
+
+def test_speaker_names_applied_from_summary(tmp_path: Path, fixtures_dir, monkeypatch):
+    from broadcast2summary.transcribe import Segment
+
+    captured = []
+
+    def fake_apply(segments, speaker_names, opening_duration=180.0):
+        captured.append(speaker_names)
+        return [
+            Segment(
+                start=s.start, end=s.end, text=s.text,
+                speaker_id=s.speaker_id, speaker_name="雅贤",
+            )
+            for s in segments
+        ]
+
+    monkeypatch.setattr("broadcast2summary.pipeline.apply_speaker_names", fake_apply)
+    monkeypatch.setattr("broadcast2summary.pipeline.diarize_audio", lambda *a, **k: [])
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary = json.loads((fixtures_dir / "sample_summary.json").read_text(encoding="utf-8"))
+    summary["speaker_names"] = {"SPEAKER_00": "雅贤"}
+    summary_json = json.dumps(summary, ensure_ascii=False)
+    segments = [
+        {"start": 0.0, "end": 5.0, "text": "我是雅贤，欢迎收听。", "speaker_id": "SPEAKER_00"},
+    ]
+    for i in range(100):
+        segments.append({
+            "start": 10.0 + i * 10,
+            "end": 20.0 + i * 10,
+            "text": f"第{i}段讨论内容。" * 20,
+            "speaker_id": "SPEAKER_00",
+        })
+    transcript_file = tmp_path / "t.json"
+    transcript_file.write_text(
+        json.dumps({"language": "zh", "segments": segments}),
+        encoding="utf-8",
+    )
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(deepseek=[summary_json, summary_json], claude=[summary_json]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=True,
+    )
+    ep = Episode(
+        guid="g1", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+    result = process_episode(ep, deps=deps)
+    assert result.success is True
+    assert captured == [{"SPEAKER_00": "雅贤"}]
+

@@ -263,6 +263,32 @@ feeds:
     assert f1.wiki_node_token is None
 
 
+def test_transcribe_config_default_backend(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    assert cfg.transcribe.backend == "whisper_cpp"
+    assert cfg.transcribe.diarization is True
+    assert cfg.transcribe.max_speakers == 6
+
+
+def test_transcribe_config_backend_env_override(tmp_path):
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "B2S_TRANSCRIBE_BACKEND": "faster_whisper",
+        },
+    )
+    assert cfg.transcribe.backend == "faster_whisper"
+
+
 def test_lark_folder_token_env_overrides_yaml(tmp_path):
     feeds_yaml = tmp_path / "feeds.yaml"
     feeds_yaml.write_text(

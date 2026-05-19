@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -11,6 +14,8 @@ class Segment:
     end: float
     text: str
     translation: str | None = None
+    speaker_id: str | None = None
+    speaker_name: str | None = None
 
     def timestamp(self) -> str:
         return _fmt_hms(self.start)
@@ -30,7 +35,7 @@ class TranscriptionResult:
         buf: list[str] = []
         buf_len = 0
         for s in self.segments:
-            line = f"[{_fmt_hms(s.start)}] {s.text.strip()}\n"
+            line = f"{format_segment_line_for_summary(s)}\n"
             if buf_len + len(line) > max_chars and buf:
                 chunks.append("".join(buf))
                 buf, buf_len = [], 0
@@ -121,8 +126,88 @@ class FasterWhisperBackend:
         return TranscriptionResult(language=info_lang or "", segments=segs)
 
 
+class WhisperCppBackend:
+    """Apple Metal-accelerated transcription via whisper.cpp (pywhispercpp)."""
+
+    def __init__(
+        self,
+        *,
+        cheap: bool = False,
+        language_hint: str | None = None,
+        n_threads: int = 4,
+        convert_traditional: bool = True,
+    ):
+        self.model_size = "small" if cheap else "large-v3-turbo"
+        self.language_hint = language_hint
+        self.n_threads = n_threads
+        self.convert_traditional = convert_traditional
+        self._model = None
+        self._cc = None
+
+    def _load(self):
+        if self._model is None:
+            from pywhispercpp.model import Model
+
+            self._model = Model(self.model_size, n_threads=self.n_threads)
+        return self._model
+
+    def _resolve_language(self, model, audio_path: Path) -> tuple[str, str]:
+        """Return (transcribe_language, info_language) for whisper.cpp."""
+        if self.language_hint:
+            return self.language_hint, self.language_hint
+        audio_str = str(audio_path)
+        detect = getattr(model, "auto_detect_language", None)
+        if detect is not None:
+            try:
+                (lang_str, _prob), _probs = detect(audio_str)
+                if lang_str:
+                    return lang_str, lang_str
+            except Exception:
+                logger.warning(
+                    "WhisperCpp language auto-detect failed for %s; falling back to auto",
+                    audio_path,
+                    exc_info=True,
+                )
+        return "auto", ""
+
+    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+        model = self._load()
+        transcribe_lang, info_lang = self._resolve_language(model, audio_path)
+        raw_segs = model.transcribe(str(audio_path), language=transcribe_lang)
+        segs = [
+            Segment(start=s.t0 / 100.0, end=s.t1 / 100.0, text=s.text.strip())
+            for s in raw_segs
+        ]
+        if self.convert_traditional and (info_lang == "zh" or self.language_hint == "zh"):
+            if self._cc is None:
+                from opencc import OpenCC
+
+                self._cc = OpenCC("t2s")
+            segs = [
+                Segment(
+                    start=s.start,
+                    end=s.end,
+                    text=self._cc.convert(s.text),
+                    translation=s.translation,
+                )
+                for s in segs
+            ]
+            from .punctuate import punctuate_segments
+
+            segs = punctuate_segments(segs, info_lang or "")
+        return TranscriptionResult(language=info_lang or "", segments=segs)
+
+
 def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:
     return backend.transcribe(audio_path)
+
+
+def format_segment_line_for_summary(seg: Segment) -> str:
+    """One transcript line for the summarizer (speaker_id only, before identity resolution)."""
+    ts = _fmt_hms(seg.start)
+    if seg.speaker_id:
+        return f"[{ts}] [{seg.speaker_id}] {seg.text.strip()}"
+    return f"[{ts}] {seg.text.strip()}"
 
 
 def _fmt_hms(seconds: float) -> str:

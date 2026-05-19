@@ -1,6 +1,37 @@
 from broadcast2summary.transcribe import (
-    transcribe_audio, TranscriptionResult, StubBackend,
+    Segment,
+    transcribe_audio,
+    TranscriptionResult,
+    StubBackend,
 )
+
+
+def test_segment_has_speaker_id_field():
+    seg = Segment(start=0.0, end=1.0, text="x")
+    assert seg.speaker_id is None
+
+
+def test_segment_has_speaker_name_field():
+    seg = Segment(start=0.0, end=1.0, text="x")
+    assert seg.speaker_name is None
+
+
+def test_chunked_for_summary_includes_speaker_id():
+    segs = [
+        Segment(start=0.0, end=5.0, text="大家好", speaker_id="SPEAKER_00"),
+        Segment(start=5.0, end=10.0, text="欢迎", speaker_id="SPEAKER_01"),
+    ]
+    chunks = TranscriptionResult(language="zh", segments=segs).chunked_for_summary()
+    joined = "".join(chunks)
+    assert "[00:00:00] [SPEAKER_00] 大家好" in joined
+    assert "[00:00:05] [SPEAKER_01] 欢迎" in joined
+
+
+def test_chunked_for_summary_omits_speaker_without_id():
+    segs = [Segment(start=0.0, end=5.0, text="hello")]
+    chunks = TranscriptionResult(language="en", segments=segs).chunked_for_summary()
+    assert "[00:00:00] hello" in chunks[0]
+    assert "SPEAKER_" not in chunks[0]
 
 
 def test_stub_backend_returns_fixture(fixtures_dir, tmp_path):
@@ -119,6 +150,141 @@ def test_faster_whisper_backend_passes_batch_size(monkeypatch):
     assert captured["batch_size"] == 16
     assert captured["language"] == "zh"
     assert captured["vad_filter"] is True
+
+
+def test_whisper_cpp_backend_default_model_size():
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    assert WhisperCppBackend().model_size == "large-v3-turbo"
+
+
+def test_whisper_cpp_backend_cheap_model_size():
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    assert WhisperCppBackend(cheap=True).model_size == "small"
+
+
+def test_whisper_cpp_backend_transcribe_mock(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def transcribe(self, path, language=None):
+            assert language == "zh"
+            return [FakeRawSeg(0, 5000, "hello")]
+
+    backend = WhisperCppBackend(cheap=True, language_hint="zh", convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == "zh"
+    assert len(result.segments) >= 1
+    assert result.segments[0].text == "hello"
+    assert result.segments[0].start == 0.0
+    assert result.segments[0].end == 50.0
+
+
+def test_whisper_cpp_auto_detects_when_no_language_hint(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def auto_detect_language(self, path):
+            return ("en", 0.95), {"en": 0.95}
+
+        def transcribe(self, path, language=None):
+            assert language == "en"
+            return [FakeRawSeg(0, 3000, "hello world")]
+
+    backend = WhisperCppBackend(cheap=True, convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == "en"
+    assert result.segments[0].text == "hello world"
+
+
+def test_whisper_cpp_language_hint_skips_auto_detect(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    detect_called = []
+
+    class FakeModel:
+        def auto_detect_language(self, path):
+            detect_called.append(path)
+            return "en", []
+
+        def transcribe(self, path, language=None):
+            assert language == "zh"
+            return []
+
+    backend = WhisperCppBackend(cheap=True, language_hint="zh", convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+    backend.transcribe(tmp_path / "fake.wav")
+    assert detect_called == []
+
+
+def test_whisper_cpp_no_hint_without_auto_detect_falls_back_to_auto(monkeypatch, tmp_path):
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    class FakeRawSeg:
+        def __init__(self, t0, t1, text):
+            self.t0, self.t1, self.text = t0, t1, text
+
+    class FakeModel:
+        def transcribe(self, path, language=None):
+            assert language == "auto"
+            return [FakeRawSeg(0, 1000, "x")]
+
+    backend = WhisperCppBackend(cheap=True, convert_traditional=False)
+    monkeypatch.setattr(backend, "_load", lambda: FakeModel())
+
+    result = backend.transcribe(tmp_path / "fake.wav")
+    assert result.language == ""
+
+
+def test_build_deps_selects_whisper_cpp_backend(tmp_path):
+    from broadcast2summary.config import load_config
+    from broadcast2summary.runner import _build_deps
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import WhisperCppBackend
+
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={"DEEPSEEK_API_KEY": "k", "ANTHROPIC_AUTH_TOKEN": "k"},
+    )
+    state = State(tmp_path / "state" / "processed.db")
+    deps = _build_deps(cfg, state, tmp_path / "state", cfg.paths)
+    assert isinstance(deps.transcribe_backend, WhisperCppBackend)
+
+
+def test_build_deps_selects_faster_whisper_backend(tmp_path):
+    from broadcast2summary.config import load_config
+    from broadcast2summary.runner import _build_deps
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import FasterWhisperBackend
+
+    feeds_yaml = tmp_path / "feeds.yaml"
+    feeds_yaml.write_text("feeds: []\n", encoding="utf-8")
+    cfg = load_config(
+        feeds_yaml,
+        env={
+            "DEEPSEEK_API_KEY": "k",
+            "ANTHROPIC_AUTH_TOKEN": "k",
+            "B2S_TRANSCRIBE_BACKEND": "faster_whisper",
+        },
+    )
+    state = State(tmp_path / "state" / "processed.db")
+    deps = _build_deps(cfg, state, tmp_path / "state", cfg.paths)
+    assert isinstance(deps.transcribe_backend, FasterWhisperBackend)
 
 
 def test_segment_has_translation_field():
