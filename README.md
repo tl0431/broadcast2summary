@@ -14,13 +14,14 @@ A local-first podcast pipeline that subscribes to feeds, transcribes episodes on
 - **Podcast sources**: Xiaoyuzhou, Apple Podcasts, any RSS feed with MP3 enclosures
 - **Transcription**: faster-whisper (batched) or whisper.cpp (Metal) — auto language detection
 - **Speaker diarization**: pyannote.audio — labels speakers, infers real names via LLM with confidence scores
-- **Translation**: English episodes → Chinese via DeepSeek, grouped by speaker turn
+- **Translation**: English episodes → Chinese via DeepSeek, grouped by speaker turn (numbered plain-text format; immune to JSON corruption)
 - **Summarization**: structured JSON (TL;DR, key points, chapters, quotes, resources) via DeepSeek or Claude
 - **Outputs**:
   - Local Markdown archive (`~/Knowledge/broadcast/archive/`)
-  - Lark (Feishu) cloud document saved to a specified folder
-  - Lark IM push notification
-- **Scheduling**: macOS launchd (daily at 23:00, survives reboots)
+  - Lark (Feishu) wiki knowledge base — creates docs directly under per-feed wiki nodes
+  - Lark IM push notification with wiki link
+- **Download**: automatic retry (3 attempts, exponential backoff) + resumable downloads across runs
+- **Scheduling**: macOS launchd (daily at 23:00, `caffeinate` prevents sleep during runs)
 - **Cheap mode**: swap to smaller models for fast iteration
 
 ---
@@ -95,8 +96,8 @@ Then get your tokens from the Feishu admin console:
 | `HF_TOKEN` | Yes (diarization) | Download pyannote gated models from HuggingFace |
 | `ANTHROPIC_API_KEY` | No | Fallback summarizer (Claude) |
 | `LARK_IM_TARGET_OPEN_ID` | No | Lark IM push target (your user open_id) |
-| `LARK_WIKI_ROOT_TOKEN` | No | Fallback folder token (used when per-feed folder not set) |
-| `LARK_FOLDER_TOKEN` | No | Folder token for wiki documents |
+| `LARK_WIKI_ROOT_TOKEN` | No | Fallback wiki node token (used when per-feed wiki node not set) |
+| `LARK_FOLDER_TOKEN` | No | Cloud folder token (fallback when no wiki node configured) |
 
 Export in your shell profile or put in a `.env` file (gitignored).
 
@@ -114,6 +115,7 @@ feeds:
   - name: "All-In Podcast"
     rss_url: "https://feeds.megaphone.fm/all-in-with-chamath-jason-sacks-friedberg"
     language: en
+    wiki_node_token: "XxxxxYyyyyZzzzz"   # Lark wiki node for this show; episodes go here as sub-docs
 
 defaults:
   paths:
@@ -162,6 +164,8 @@ bash scripts/install_launchd.sh          # daily 23:00, auto-start on login
 launchctl start com.tl.broadcast2summary  # trigger immediately for testing
 bash scripts/uninstall_launchd.sh        # remove
 ```
+
+The launchd job runs under `caffeinate -i` to prevent macOS idle sleep from interrupting long downloads or transcription.
 
 Logs: `~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 

@@ -14,13 +14,14 @@
 - **播客来源**：小宇宙、Apple Podcasts、任何带 MP3 附件的 RSS 源
 - **转写**：faster-whisper（批量）或 whisper.cpp（Metal）——自动检测语言
 - **说话人分离**：pyannote.audio 标注说话人，LLM 推断真实姓名并给出置信度
-- **翻译**：英文节目 → 中文，按说话人轮次分段翻译，无串行问题
+- **翻译**：英文节目 → 中文，按说话人轮次分段翻译（编号纯文本格式，规避 JSON 损坏问题）
 - **摘要**：结构化 JSON（TL;DR、要点、章节、金句、资源）via DeepSeek 或 Claude
 - **输出渠道**：
   - 本地 Markdown 归档（`~/Knowledge/broadcast/archive/`）
-  - 飞书云文档（写入指定云文件夹）
-  - 飞书 IM 推送
-- **定时任务**：macOS launchd（每天 23:00，重启后自动恢复）
+  - 飞书知识库——按节目节点直接创建子文档
+  - 飞书 IM 推送（附知识库链接）
+- **下载**：自动重试（最多 3 次，指数退避）+ 跨次运行断点续传
+- **定时任务**：macOS launchd（每天 23:00，`caffeinate` 防止睡眠中断下载）
 - **低成本模式**：`--cheap` 切换到小模型，适合开发调试
 
 ---
@@ -93,8 +94,8 @@ lark-cli auth login   # 完成一次性授权，凭证存储在本地
 | `HF_TOKEN` | 是（说话人分离） | 从 HuggingFace 下载 pyannote 受限模型 |
 | `ANTHROPIC_API_KEY` | 否 | Claude 备用摘要 |
 | `LARK_IM_TARGET_OPEN_ID` | 否 | 飞书 IM 推送目标（用户 open_id） |
-| `LARK_WIKI_ROOT_TOKEN` | 否 | 兜底文件夹 token（未配置单集时使用） |
-| `LARK_FOLDER_TOKEN` | 否 | 云文档文件夹 token |
+| `LARK_WIKI_ROOT_TOKEN` | 否 | 兜底知识库节点 token（未配置节目节点时使用） |
+| `LARK_FOLDER_TOKEN` | 否 | 云文档文件夹 token（未配置知识库节点时的兜底） |
 
 写入 shell 配置文件或放到 `.env`（已加入 .gitignore）。
 
@@ -112,6 +113,7 @@ feeds:
   - name: "All-In Podcast"
     rss_url: "https://feeds.megaphone.fm/all-in-with-chamath-jason-sacks-friedberg"
     language: en
+    wiki_node_token: "XxxxxYyyyyZzzzz"   # 该节目在飞书知识库的节点 token，每集作为子文档挂在此节点下
   - name: "硅谷101"
     rss_url: "https://..."
     language: zh
@@ -163,6 +165,8 @@ bash scripts/install_launchd.sh          # 安装，每天 23:00 自动运行
 launchctl start com.tl.broadcast2summary  # 立即触发，用于测试
 bash scripts/uninstall_launchd.sh        # 卸载
 ```
+
+launchd 任务通过 `caffeinate -i` 运行，防止 macOS 空闲睡眠中断下载或转写。
 
 日志：`~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 
