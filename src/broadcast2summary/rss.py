@@ -58,10 +58,10 @@ def filter_new_episodes(
     already_processed: set[str],
     recent_n: int | None = None,
 ) -> list[Episode]:
-    new = [e for e in episodes if e.guid not in already_processed]
+    eps = list(episodes)
     if recent_n is not None and recent_n > 0:
-        new = new[:recent_n]
-    return new
+        eps = eps[:recent_n]
+    return [e for e in eps if e.guid not in already_processed]
 
 
 def _to_iso_utc(entry) -> str:

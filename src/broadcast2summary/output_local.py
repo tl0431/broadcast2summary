@@ -80,6 +80,12 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
         lines.append("")
     lines.append("## 完整转写")
     lines.append("")
+    lines.append(_render_transcript_section(segments, language=language))
+    return "\n".join(lines)
+
+
+def _render_transcript_section(segments, *, language: str = "zh") -> str:
+    lines: list[str] = []
     for block in _group_segments(segments):
         first = block[0]
         ts = _fmt_hms(first.start)
@@ -94,7 +100,7 @@ def render_markdown(show_name: str, episode_title: str, pub_date: str,
     return "\n".join(lines)
 
 
-def _group_segments(segments, *, gap_threshold: float = 5.0) -> list:
+def _group_segments(segments, *, gap_threshold: float = 5.0, max_block_secs: float = 120.0) -> list:
     """Merge consecutive same-speaker segments into paragraph blocks."""
     if not segments:
         return []
@@ -104,7 +110,9 @@ def _group_segments(segments, *, gap_threshold: float = 5.0) -> list:
         prev = current[-1]
         speaker_changed = (seg.speaker_name or seg.speaker_id) != (prev.speaker_name or prev.speaker_id)
         time_gap = seg.start - prev.end > gap_threshold
-        if speaker_changed or time_gap:
+        no_speaker = not (seg.speaker_name or seg.speaker_id)
+        block_too_long = no_speaker and (seg.start - current[0].start) > max_block_secs
+        if speaker_changed or time_gap or block_too_long:
             blocks.append(current)
             current = [seg]
         else:

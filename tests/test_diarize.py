@@ -56,8 +56,8 @@ def test_diarize_audio_returns_empty_when_pipeline_finds_nothing(monkeypatch, tm
     monkeypatch.setattr("broadcast2summary.diarize._load_pipeline",
                         lambda: FakePipeline())
     monkeypatch.setattr(
-        "broadcast2summary.diarize.sf.read",
-        lambda path, dtype: (np.zeros(16000, dtype=np.float32), 16000),
+        "broadcast2summary.diarize._load_audio",
+        lambda path, target_sr=16000: (np.zeros(16000, dtype=np.float32), 16000),
     )
     assert diarize_audio(tmp_path / "x.wav") == []
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 import json
+import logging
 from .transcribe import Segment
+
+logger = logging.getLogger(__name__)
 
 
 def _group_by_speaker(segments: list[Segment], gap_threshold: float = 5.0) -> list[list[Segment]]:
@@ -39,12 +42,22 @@ def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment
         f"{json.dumps(texts, ensure_ascii=False)}\n\n"
         "返回格式: [{\"t\": \"译文1\"}, {\"t\": \"译文2\"}, ...]"
     )
-    raw = deepseek_client.complete(prompt, temperature=0.1)
-    translations = json.loads(raw)
+    if hasattr(deepseek_client, "complete_json"):
+        raw = deepseek_client.complete_json(prompt, temperature=0.1)
+    else:
+        raw = deepseek_client.complete(prompt, temperature=0.1)
+
+    try:
+        translations = json.loads(raw)
+        if isinstance(translations, dict):
+            translations = next((v for v in translations.values() if isinstance(v, list)), [])
+    except json.JSONDecodeError as e:
+        logger.warning("translation JSON parse failed (%s) — returning segments without translation", e)
+        return segments
 
     result: list[Segment] = []
     for group, trans in zip(groups, translations):
-        translation_text = trans.get("t", "")
+        translation_text = trans.get("t", "") if isinstance(trans, dict) else ""
         for i, seg in enumerate(group):
             result.append(Segment(
                 start=seg.start, end=seg.end, text=seg.text,

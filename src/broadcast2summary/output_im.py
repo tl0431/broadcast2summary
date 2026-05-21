@@ -17,6 +17,27 @@ def push_summary_to_im(
     lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
 
 
+def push_failure_to_im(
+    *,
+    lark: LarkClient,
+    target_open_id: str | None,
+    feed_name: str,
+    episode_title: str,
+    stage: str,
+    error: str,
+) -> None:
+    if not target_open_id:
+        return
+    first_line = error.splitlines()[0][:120] if error else "unknown"
+    text = (
+        f"❌ 处理失败 · {feed_name}\n"
+        f"标题：{episode_title}\n"
+        f"阶段：{stage}\n"
+        f"错误：{first_line}"
+    )
+    lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
+
+
 def _build_text(show_name: str, episode_title: str, summary: dict,
                 wiki_doc_url: str | None) -> str:
     parts: list[str] = []

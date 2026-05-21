@@ -89,6 +89,13 @@ class FasterWhisperBackend:
             self._batched = BatchedInferencePipeline(model=self._model)
         return self._batched
 
+    def release(self) -> None:
+        import gc
+        self._model = None
+        self._batched = None
+        gc.collect()
+        logger.info("FasterWhisper model released from memory")
+
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
         import sys
         pipeline = self._load()
@@ -169,6 +176,13 @@ class WhisperCppBackend:
                     exc_info=True,
                 )
         return "auto", ""
+
+    def release(self) -> None:
+        import gc
+        self._model = None
+        self._cc = None
+        gc.collect()
+        logger.info("WhisperCpp model released from memory")
 
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
         model = self._load()

@@ -5,12 +5,37 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import soundfile as sf
+import subprocess
+
+import numpy as np
 import torch
 
 from .transcribe import Segment
 
 log = logging.getLogger(__name__)
+
+_FFMPEG = "/usr/local/bin/ffmpeg"
+
+
+def _load_audio(audio_path: Path, target_sr: int = 16000) -> tuple[np.ndarray, int]:
+    """Decode audio to float32 mono PCM via ffmpeg subprocess (handles MP3/M4A/WAV)."""
+    cmd = [
+        _FFMPEG, "-loglevel", "error",
+        "-i", str(audio_path),
+        "-ar", str(target_sr),
+        "-ac", "1",
+        "-f", "f32le",
+        "pipe:1",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        audio = np.frombuffer(result.stdout, dtype=np.float32).copy()
+        log.debug("ffmpeg decoded %s → %d samples @ %d Hz", audio_path.name, len(audio), target_sr)
+        return audio, target_sr
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(errors="replace")
+        log.error("ffmpeg decode failed for %s: %s", audio_path, stderr)
+        raise RuntimeError(f"ffmpeg decode failed: {stderr}") from e
 
 
 @dataclass(frozen=True)
@@ -55,20 +80,17 @@ def release_pipeline() -> None:
 def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTurn]:
     pipeline = _load_pipeline()
 
-    # Load audio with soundfile → pass as waveform dict (avoids torchcodec)
-    audio, sr = sf.read(str(audio_path), dtype="float32")
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
+    audio, sr = _load_audio(audio_path)
     waveform = torch.from_numpy(audio).unsqueeze(0)  # [1, samples]
+    log.debug("running pyannote on %s (%d samples)", audio_path.name, len(audio))
 
     diarization = pipeline(
         {"waveform": waveform, "sample_rate": sr},
         max_speakers=max_speakers,
     )
 
-    annotation = diarization.speaker_diarization
     turns = []
-    for segment, _, speaker in annotation.itertracks(yield_label=True):
+    for segment, _, speaker in diarization.speaker_diarization.itertracks(yield_label=True):
         turns.append(SpeakerTurn(
             speaker_id=speaker,
             start=segment.start,
