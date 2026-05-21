@@ -1,16 +1,65 @@
-import json
+import re
+import pytest
 from broadcast2summary.transcribe import Segment
+from broadcast2summary.translate import translate_segments, _parse_numbered
 
+
+# ---------------------------------------------------------------------------
+# _parse_numbered unit tests
+# ---------------------------------------------------------------------------
+
+def test_parse_numbered_basic():
+    raw = "1. 你好世界\n2. 这是测试"
+    assert _parse_numbered(raw, 2) == ["你好世界", "这是测试"]
+
+
+def test_parse_numbered_with_newline_inside_value():
+    """Newlines inside a translation value: only the numbered line is captured."""
+    raw = "1. 第一段翻译\n这是续行被忽略\n2. 第二段"
+    result = _parse_numbered(raw, 2)
+    assert result[0] == "第一段翻译"
+    assert result[1] == "第二段"
+
+
+def test_parse_numbered_missing_entry_returns_empty():
+    raw = "1. 译文一\n3. 译文三"  # 2 is missing
+    result = _parse_numbered(raw, 3)
+    assert result[0] == "译文一"
+    assert result[1] == ""
+    assert result[2] == "译文三"
+
+
+def test_parse_numbered_extra_entries_ignored():
+    raw = "1. A\n2. B\n99. extra"
+    result = _parse_numbered(raw, 2)
+    assert result == ["A", "B"]
+
+
+def test_parse_numbered_quotes_in_value():
+    """ASCII quotes in translation do not cause parse failure (regression: Lex #494)."""
+    raw = '1. Jensen说"我们需要10倍速"\n2. 这很重要'
+    result = _parse_numbered(raw, 2)
+    assert '"' in result[0]
+    assert result[1] == "这很重要"
+
+
+def test_parse_numbered_chinese_period_separator():
+    raw = "1、第一段\n2、第二段"
+    result = _parse_numbered(raw, 2)
+    assert result == ["第一段", "第二段"]
+
+
+# ---------------------------------------------------------------------------
+# translate_segments integration tests
+# ---------------------------------------------------------------------------
 
 def test_translate_segments_returns_translation_field(monkeypatch):
     """translate_segments groups by speaker; first segment of each group gets translation."""
-    from broadcast2summary.translate import translate_segments
 
     class FakeDeepSeek:
         def complete(self, prompt, *, temperature):
-            return json.dumps([{"t": "你好世界"}, {"t": "这是测试"}])
+            return "1. 你好世界\n2. 这是测试"
 
-    # Use different speakers so they form separate groups
     segs = [
         Segment(start=0.0, end=5.0, text="Hello world", speaker_id="SPEAKER_00"),
         Segment(start=5.0, end=10.0, text="This is a test", speaker_id="SPEAKER_01"),
@@ -24,47 +73,76 @@ def test_translate_segments_returns_translation_field(monkeypatch):
 
 def test_translate_segments_sends_batch_not_per_segment():
     """All segments must be sent in ONE API call, not N calls."""
-    from broadcast2summary.translate import translate_segments
 
     call_count = {"n": 0}
 
     class CountingDeepSeek:
         def complete(self, prompt, *, temperature):
             call_count["n"] += 1
-            # Extract the JSON array from the prompt
-            lines = prompt.strip().split("\n")
-            for line in lines:
-                line = line.strip()
-                if line.startswith("[") and line.endswith("]"):
-                    texts = json.loads(line)
-                    return json.dumps([{"t": f"译{t}"} for t in texts])
-            return "[]"
+            # Count how many numbered lines are in the prompt
+            n = len(re.findall(r'^\d+\.', prompt, re.MULTILINE))
+            return "\n".join(f"{i+1}. 译{i+1}" for i in range(n))
 
-    segs = [Segment(start=float(i), end=float(i+1), text=f"text{i}")
+    segs = [Segment(start=float(i), end=float(i + 1), text=f"text{i}")
             for i in range(10)]
     translate_segments(segs, CountingDeepSeek())
-    assert call_count["n"] == 1  # exactly one API call for 10 segments
+    assert call_count["n"] == 1
 
 
 def test_translate_segments_empty_returns_empty():
-    from broadcast2summary.translate import translate_segments
 
     class FakeDeepSeek:
         def complete(self, prompt, *, temperature):
-            return "[]"
+            return ""
 
     result = translate_segments([], FakeDeepSeek())
     assert result == []
 
 
 def test_translate_segments_preserves_start_end():
-    from broadcast2summary.translate import translate_segments
 
     class FakeDeepSeek:
         def complete(self, prompt, *, temperature):
-            return json.dumps([{"t": "译文"}])
+            return "1. 译文"
 
     segs = [Segment(start=1.5, end=4.2, text="Hello")]
     result = translate_segments(segs, FakeDeepSeek())
     assert result[0].start == 1.5
     assert result[0].end == 4.2
+
+
+def test_translate_segments_newline_in_translation_does_not_corrupt():
+    """Regression: Lex #494 — DeepSeek returned \\n inside a translation value,
+    which broke json.loads. Numbered format is immune; at worst one item is truncated."""
+
+    class FakeDeepSeekWithNewline:
+        def complete(self, prompt, *, temperature):
+            # Simulate a translation that contains a literal newline mid-value
+            return "1. 这是第一段翻译\n2. 这是第二段\n翻译有换行续行被截断\n3. 第三段"
+
+    segs = [
+        Segment(start=0.0, end=5.0, text="First segment", speaker_id="SPEAKER_00"),
+        Segment(start=5.0, end=10.0, text="Second segment with newline issue",
+                speaker_id="SPEAKER_01"),
+        Segment(start=10.0, end=15.0, text="Third segment", speaker_id="SPEAKER_02"),
+    ]
+    result = translate_segments(segs, FakeDeepSeekWithNewline())
+    # All three must return a Segment (no exception)
+    assert len(result) == 3
+    assert result[0].translation == "这是第一段翻译"
+    # Second may be partial but must not be empty and must not contain unrelated text
+    assert result[1].translation == "这是第二段"
+    assert result[2].translation == "第三段"
+
+
+def test_translate_segments_quote_in_english_source():
+    """Regression: Lex #494 — English source containing ASCII quotes does not
+    cause JSON encode/decode failure (was a risk with JSON-mode approach)."""
+
+    class FakeDeepSeek:
+        def complete(self, prompt, *, temperature):
+            return '1. Jensen说"我们需要十倍"'
+
+    segs = [Segment(start=0.0, end=5.0, text='Jensen said "we need 10x"')]
+    result = translate_segments(segs, FakeDeepSeek())
+    assert '"' in result[0].translation

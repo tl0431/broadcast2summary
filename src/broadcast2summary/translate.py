@@ -1,9 +1,21 @@
 from __future__ import annotations
-import json
 import logging
+import re
 from .transcribe import Segment
 
 logger = logging.getLogger(__name__)
+
+_NUMBERED_RE = re.compile(r'^(\d+)[.、]\s*(.+)', re.MULTILINE)
+
+
+def _parse_numbered(raw: str, expected: int) -> list[str]:
+    """Parse '1. text\\n2. text\\n...' format; returns list of length `expected`."""
+    result: dict[int, str] = {}
+    for m in _NUMBERED_RE.finditer(raw):
+        idx = int(m.group(1))
+        if 1 <= idx <= expected:
+            result[idx] = m.group(2).strip()
+    return [result.get(i + 1, "") for i in range(expected)]
 
 
 def _group_by_speaker(segments: list[Segment], gap_threshold: float = 5.0) -> list[list[Segment]]:
@@ -36,28 +48,17 @@ def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment
 
     groups = _group_by_speaker(segments)
     texts = [" ".join(s.text for s in group) for group in groups]
+    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     prompt = (
-        "将以下英文播客段落逐段翻译成中文。\n"
-        "严格按 JSON 数组返回,顺序与输入一致,每条只有 \"t\" 字段:\n\n"
-        f"{json.dumps(texts, ensure_ascii=False)}\n\n"
-        "返回格式: [{\"t\": \"译文1\"}, {\"t\": \"译文2\"}, ...]"
+        f"将以下 {len(texts)} 段英文播客逐段翻译成中文。\n"
+        "按序输出，每段一行，格式为「序号. 译文」，不要其他内容：\n\n"
+        + numbered
     )
-    if hasattr(deepseek_client, "complete_json"):
-        raw = deepseek_client.complete_json(prompt, temperature=0.1)
-    else:
-        raw = deepseek_client.complete(prompt, temperature=0.1)
-
-    try:
-        translations = json.loads(raw)
-        if isinstance(translations, dict):
-            translations = next((v for v in translations.values() if isinstance(v, list)), [])
-    except json.JSONDecodeError as e:
-        logger.warning("translation JSON parse failed (%s) — returning segments without translation", e)
-        return segments
+    raw = deepseek_client.complete(prompt, temperature=0.1)
+    translation_texts = _parse_numbered(raw, len(groups))
 
     result: list[Segment] = []
-    for group, trans in zip(groups, translations):
-        translation_text = trans.get("t", "") if isinstance(trans, dict) else ""
+    for group, translation_text in zip(groups, translation_texts):
         for i, seg in enumerate(group):
             result.append(Segment(
                 start=seg.start, end=seg.end, text=seg.text,

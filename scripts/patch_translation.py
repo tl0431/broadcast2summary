@@ -1,6 +1,5 @@
 """Patch translation into existing English episode markdown files."""
 from __future__ import annotations
-import json
 import os
 import re
 import sys
@@ -10,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 MD_FILES = [
     '/Users/TL_1/Knowledge/broadcast/archive/Lex Fridman Podcast/2026-03-23-#494 – Jensen Huang_ NVIDIA – The $4 Trillion Company & the AI Revolution.md',
     '/Users/TL_1/Knowledge/broadcast/archive/All-In Podcast/2026-05-15-Trump-Xi Summit, Benioff_ _Not My First SaaSpocalypse,_ OpenAI vs Apple, Multi-S.md',
+    '/Users/TL_1/Knowledge/broadcast/archive/The a16z Show/2026-05-20-Marc Andreessen on AI, California, and the Future of America _ Joe Rogan.md',
 ]
 
 BATCH = 30  # segments per DeepSeek call
@@ -27,23 +27,30 @@ def _load_deepseek_key() -> str:
     return os.environ.get('DEEPSEEK_API_KEY', '')
 
 
+_NUMBERED_RE = re.compile(r'^(\d+)[.、]\s*(.+)', re.MULTILINE)
+
+
+def _parse_numbered(raw: str, expected: int) -> list[str]:
+    result: dict[int, str] = {}
+    for m in _NUMBERED_RE.finditer(raw):
+        idx = int(m.group(1))
+        if 1 <= idx <= expected:
+            result[idx] = m.group(2).strip()
+    return [result.get(i + 1, "") for i in range(expected)]
+
+
 def _translate_batch(client, texts: list[str]) -> list[str]:
+    """Translate a batch using numbered plain-text format (immune to JSON encoding issues)."""
+    if not texts:
+        return []
+    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     prompt = (
-        "将以下英文播客段落逐段翻译成中文。\n"
-        "严格按 JSON 数组返回，顺序与输入一致，每条只有 \"t\" 字段:\n\n"
-        f"{json.dumps(texts, ensure_ascii=False)}\n\n"
-        "返回格式: [{\"t\": \"译文1\"}, {\"t\": \"译文2\"}, ...]"
+        f"将以下 {len(texts)} 段英文播客逐段翻译成中文。\n"
+        "按序输出，每段一行，格式为「序号. 译文」，不要其他内容：\n\n"
+        + numbered
     )
-    raw = client.complete_json(prompt, temperature=0.1)
-    try:
-        result = json.loads(raw)
-        # unwrap if DeepSeek returned {"translations": [...]} style object
-        if isinstance(result, dict):
-            result = next((v for v in result.values() if isinstance(v, list)), [])
-        return [r.get("t", "") if isinstance(r, dict) else "" for r in result]
-    except json.JSONDecodeError as e:
-        print(f"    JSON parse error: {e} — batch skipped")
-        return [""] * len(texts)
+    raw = client.complete(prompt, temperature=0.1)
+    return _parse_numbered(raw, len(texts))
 
 
 def patch_file(path: str, client) -> None:

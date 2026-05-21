@@ -154,7 +154,6 @@ def _has_named_speaker(line: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _repair_translation(local_path: Path, *, cache_dir: Path, deepseek: "LLMClient") -> None:
-    import json as _json
     logger.info("repairing translation for %s", local_path.name)
 
     transcript_cache = cache_dir / "transcript.json"
@@ -173,7 +172,6 @@ def _repair_translation(local_path: Path, *, cache_dir: Path, deepseek: "LLMClie
 
 def _patch_translations_from_markdown(local_path: Path, *, deepseek: "LLMClient") -> None:
     """Fallback: parse English lines from markdown, translate, insert [译] lines."""
-    import json as _json
     content = local_path.read_text(encoding="utf-8")
     lines = content.splitlines()
 
@@ -193,22 +191,22 @@ def _patch_translations_from_markdown(local_path: Path, *, deepseek: "LLMClient"
         return
 
     BATCH = 30
+    _NUMBERED_RE = re.compile(r'^(\d+)[.、]\s*(.+)', re.MULTILINE)
     all_translations: list[str] = []
     for start in range(0, len(need), BATCH):
         batch = [t for _, t in need[start:start + BATCH]]
+        numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(batch))
         prompt = (
-            "将以下英文播客段落逐段翻译成中文。\n"
-            "严格按 JSON 数组返回，顺序与输入一致，每条只有 \"t\" 字段:\n\n"
-            f"{_json.dumps(batch, ensure_ascii=False)}\n\n"
-            "返回格式: [{\"t\": \"译文1\"}, {\"t\": \"译文2\"}, ...]"
+            f"将以下 {len(batch)} 段英文播客逐段翻译成中文。\n"
+            "按序输出，每段一行，格式为「序号. 译文」，不要其他内容：\n\n"
+            + numbered
         )
         try:
-            if hasattr(deepseek, "complete_json"):
-                raw = deepseek.complete_json(prompt, temperature=0.1)  # type: ignore[union-attr]
-            else:
-                raw = deepseek.complete(prompt, temperature=0.1)
-            result = _json.loads(raw)
-            all_translations.extend(r.get("t", "") for r in result)
+            raw = deepseek.complete(prompt, temperature=0.1)
+            parsed = {int(m.group(1)): m.group(2).strip()
+                      for m in _NUMBERED_RE.finditer(raw)
+                      if 1 <= int(m.group(1)) <= len(batch)}
+            all_translations.extend(parsed.get(i + 1, "") for i in range(len(batch)))
         except Exception:
             logger.exception("batch translation failed")
             all_translations.extend("" for _ in batch)

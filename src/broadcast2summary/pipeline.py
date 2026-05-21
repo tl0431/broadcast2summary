@@ -188,10 +188,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     wiki_token, wiki_url = None, None
     try:
         target_node = ep.wiki_node_token or deps.wiki_root
-        if deps.lark and deps.lark_folder_token and target_node:
+        if deps.lark and target_node:
             wiki_result = push_summary_to_wiki(
                 lark=deps.lark,
                 folder_token=deps.lark_folder_token,
+                wiki_node_token=target_node,
                 title=f"{ep.pub_date[:10]} {ep.title}",
                 markdown_body=local_path.read_text(encoding="utf-8"),
             )
