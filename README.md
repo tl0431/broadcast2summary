@@ -196,6 +196,43 @@ Peak memory on Apple M2 8 GB: ~6 GB during transcription (after diarization rele
 
 ---
 
+## DeepSeek Cost & Billing
+
+### Cost Estimation
+
+DeepSeek API pricing (deepseek-chat / V3 model):
+
+| Item | Price |
+|------|-------|
+| Input tokens (cache miss) | ¥1 / M tokens (~$0.14) |
+| Input tokens (cache hit) | ¥0.1 / M tokens |
+| Output tokens | ¥2 / M tokens (~$0.28) |
+
+**Per episode (60 min):**
+
+| Type | Input tokens | Output tokens | Est. cost |
+|------|-------------|--------------|-----------|
+| Chinese episode (summary only) | ~15,000 | ~2,000 | ~¥0.02 |
+| English episode (summary + translation) | ~22,000 | ~4,000 | ~¥0.03 |
+| Long episode >60K chars (Map-Reduce) | ~40,000 | ~5,000 | ~¥0.05 |
+
+> Token estimate: Chinese ≈ 1.5 chars/token; full transcript + prompt header ≈ 15K tokens/episode; translation adds ~7K tokens (English only).
+
+**Monthly reference:**
+- 1 episode/day (30 eps/month) → ¥0.6–1.5/month
+- ¥10 top-up ≈ 6 months; ¥100 top-up ≈ several years
+
+### How to Top Up
+
+1. Go to [platform.deepseek.com](https://platform.deepseek.com) and sign in / register
+2. Click your avatar (top-right) → **Top Up** (or left menu → **Billing**)
+3. Choose an amount (min ¥10) — supports **Alipay**, **WeChat Pay**, and international cards
+4. After payment, go to **API Keys** → create a key → set `DEEPSEEK_API_KEY` in your environment
+
+> Balance never expires. Pay-as-you-go. Suggest starting with ¥10–50 to gauge your actual usage.
+
+---
+
 ## Development
 
 ```bash

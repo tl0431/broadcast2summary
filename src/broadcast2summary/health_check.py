@@ -57,6 +57,12 @@ def check_and_repair(
     Returns True when all checks pass — caller should then delete cache.
     Returns False when issues remain — cache preserved for manual repair.
     """
+    asr_corrections = summary_parsed.get("asr_corrections") or {}
+    if asr_corrections:
+        n = _repair_asr_corrections(local_path, asr_corrections)
+        if n:
+            logger.info("asr_corrections: %d replacements applied in %s", n, local_path.name)
+
     issues = _check(local_path, language=language, cache_dir=cache_dir)
     if not issues:
         logger.info("health check passed: %s", local_path.name)
@@ -273,6 +279,32 @@ def _repair_speaker_labels(
     new_transcript = _render_transcript_section(named)
     local_path.write_text(header + "## 完整转写\n\n" + new_transcript, encoding="utf-8")
     logger.info("speaker labels repaired for %s", local_path.name)
+
+
+# ---------------------------------------------------------------------------
+# Repair: ASR corrections
+# ---------------------------------------------------------------------------
+
+def _repair_asr_corrections(md_path: Path, corrections: dict[str, str]) -> int:
+    """Replace ASR-misrecognized words in the ## 完整转写 section only.
+
+    Only the transcript section is modified so that the LLM-generated summary
+    above remains untouched. Returns total number of string replacements made.
+    """
+    if not corrections:
+        return 0
+    content = md_path.read_text(encoding="utf-8")
+    if "## 完整转写" not in content:
+        return 0
+    header, transcript = content.split("## 完整转写", 1)
+    total = 0
+    for wrong, correct in corrections.items():
+        n = transcript.count(wrong)
+        if n:
+            transcript = transcript.replace(wrong, correct)
+            total += n
+    md_path.write_text(header + "## 完整转写" + transcript, encoding="utf-8")
+    return total
 
 
 # ---------------------------------------------------------------------------

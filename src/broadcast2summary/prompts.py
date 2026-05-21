@@ -21,7 +21,8 @@ _SUMMARY_JSON_SCHEMA_BASE = """{{
   "resources": [{{"type": "book|paper|website|product", "title": "...", "url": "若提及"}}],
   "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
   "guests": ["嘉宾姓名列表"],
-  "actionable_items": ["听众可执行的具体建议,可空"]
+  "actionable_items": ["听众可执行的具体建议,可空"],
+  "asr_corrections": {{"错误汉字": "正确词"}}
 }}"""
 
 _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS = """{{
@@ -32,7 +33,8 @@ _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS = """{{
   "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
   "guests": ["嘉宾姓名列表"],
   "actionable_items": ["听众可执行的具体建议,可空"],
-  "speaker_names": {{"SPEAKER_00": {{"name": "嘉宾真名或null", "confidence": 0.9}}, "SPEAKER_01": {{"name": null, "confidence": 0.0}}}}
+  "speaker_names": {{"SPEAKER_00": {{"name": "嘉宾真名或null", "confidence": 0.9}}, "SPEAKER_01": {{"name": null, "confidence": 0.0}}}},
+  "asr_corrections": {{"错误汉字": "正确词"}}
 }}"""
 
 _SUMMARY_REQUIREMENTS_BASE = """要求:
@@ -40,7 +42,8 @@ _SUMMARY_REQUIREMENTS_BASE = """要求:
 2. chapters 至少 3 段,按时间顺序
 3. 不要编造原文未出现的信息
 4. 拒绝使用"作为 AI 助手"等元话语
-5. 原始转写来自 ASR,可能存在同音字误识或英文术语错拼(例:CAR-T 被识别成 Carty)。摘要里使用通用规范写法,不要复刻原文错字。完整转写本身保持 ASR 原貌,作为可追溯证据。"""
+5. 原始转写来自 ASR,可能存在同音字误识或英文术语错拼(例:CAR-T 被识别成 Carty)。摘要里使用通用规范写法,不要复刻原文错字。完整转写本身保持 ASR 原貌,作为可追溯证据。
+6. asr_corrections 字段:若发现转写中有明显 ASR 误识别(如英文专有名词被识别为同音汉字,例 "非法"→"FIFA"、"国际组联"→"国际足联"),输出纠错映射 {{"错误识别": "正确词"}}。无明显错误则输出空对象 {{}}。"""
 
 _SUMMARY_REQUIREMENTS_WITH_SPEAKERS = _SUMMARY_REQUIREMENTS_BASE + """
 6. 如果转写包含 [SPEAKER_XX] 标注,在 speaker_names 字段为每个说话人返回 {{"name": 真实姓名或null, "confidence": 置信度}}。
