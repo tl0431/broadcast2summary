@@ -50,19 +50,19 @@ def test_check_flags_missing_when_no_translation_at_all(tmp_path):
     assert "translation_partial" not in issues
 
 
-def test_check_partial_threshold_is_90_percent(tmp_path):
-    """9/10 lines translated (90%) is acceptable; 8/10 (80%) should flag partial."""
-    # 9/10 → acceptable (≥ 90%)
+def test_check_partial_threshold_is_98_percent(tmp_path):
+    """98/100 lines translated is acceptable; 97/100 should flag translation_partial."""
+    # 98/100 → acceptable (≥ 98%)
     (tmp_path / "ok").mkdir(exist_ok=True)
-    md_ok = _make_md(tmp_path / "ok", ts_count=10, translated_count=9)
+    md_ok = _make_md(tmp_path / "ok", ts_count=100, translated_count=98)
     cache_ok = tmp_path / "cache_ok"
     cache_ok.mkdir()
     assert "translation_partial" not in _check(md_ok, language="en", cache_dir=cache_ok)
 
-    # 8/10 → partial (< 90%)
+    # 97/100 → partial (< 98%)
     tmp_bad = tmp_path / "bad"
     tmp_bad.mkdir()
-    md_bad = _make_md(tmp_bad, ts_count=10, translated_count=8)
+    md_bad = _make_md(tmp_bad, ts_count=100, translated_count=97)
     cache_bad = tmp_path / "cache_bad"
     cache_bad.mkdir()
     assert "translation_partial" in _check(md_bad, language="en", cache_dir=cache_bad)

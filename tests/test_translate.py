@@ -226,3 +226,151 @@ def test_translate_segments_single_call_for_30_groups():
     ]
     translate_segments(segs, CountingDeepSeek())
     assert call_count["n"] == 1, "30 groups should fit in a single API call"
+
+
+# ---------------------------------------------------------------------------
+# Batch retry: _translate_batch must retry when response is incomplete
+# ---------------------------------------------------------------------------
+
+def test_translate_batch_retries_on_incomplete_response():
+    """_translate_batch retries when DeepSeek returns fewer items than requested."""
+    from broadcast2summary.translate import _translate_batch
+
+    call_count = {"n": 0}
+
+    class TruncatingDeepSeek:
+        def complete(self, prompt, *, temperature):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First call: only return 3 of 5 items (simulates truncation)
+                return "1. 译一\n2. 译二\n3. 译三"
+            # Second call: return all 5
+            return "1. 译一\n2. 译二\n3. 译三\n4. 译四\n5. 译五"
+
+    result = _translate_batch(["a", "b", "c", "d", "e"], TruncatingDeepSeek())
+
+    assert call_count["n"] == 2, "Should retry once when first response is incomplete"
+    assert all(r for r in result), f"All items should be translated after retry, got: {result}"
+    assert len(result) == 5
+
+
+def test_translate_batch_succeeds_first_try_no_retry():
+    """_translate_batch must NOT retry when first response is complete."""
+    from broadcast2summary.translate import _translate_batch
+
+    call_count = {"n": 0}
+
+    class CompleteDeepSeek:
+        def complete(self, prompt, *, temperature):
+            call_count["n"] += 1
+            return "1. 译一\n2. 译二\n3. 译三"
+
+    _translate_batch(["a", "b", "c"], CompleteDeepSeek())
+    assert call_count["n"] == 1, "No retry needed when response is complete"
+
+
+def test_translate_batch_gives_up_after_max_retries():
+    """_translate_batch returns best-effort result after exhausting retries."""
+    from broadcast2summary.translate import _translate_batch
+
+    call_count = {"n": 0}
+
+    class AlwaysTruncatingDeepSeek:
+        def complete(self, prompt, *, temperature):
+            call_count["n"] += 1
+            return "1. 译一"  # always only returns first item
+
+    result = _translate_batch(["a", "b", "c"], AlwaysTruncatingDeepSeek())
+
+    assert call_count["n"] == 3, "Should retry _BATCH_RETRIES=2 times, then give up"
+    assert result[0] == "译一"   # first item always present
+    assert result[1] == ""       # missing items are empty strings
+
+
+# ---------------------------------------------------------------------------
+# Fix: _flatten_groups_to_chunks — hard-bound input size per item
+# ---------------------------------------------------------------------------
+
+def test_build_batches_respects_char_limit():
+    """Each batch item's text must be ≤ MAX_CHARS_PER_ITEM chars."""
+    from broadcast2summary.translate import _build_translation_batches, MAX_CHARS_PER_ITEM
+
+    # Same speaker, many segments — together they exceed the limit
+    segs = [
+        Segment(start=float(i), end=float(i + 1),
+                text="x" * 50,  # 50 chars each
+                speaker_id="SPEAKER_00")
+        for i in range(20)  # 20 × 50 = 1000 chars >> MAX_CHARS_PER_ITEM
+    ]
+    batches = _build_translation_batches(segs)
+    for batch in batches:
+        batch_text = " ".join(s.text for s in batch)
+        assert len(batch_text) <= MAX_CHARS_PER_ITEM, (
+            f"Batch item exceeded MAX_CHARS_PER_ITEM={MAX_CHARS_PER_ITEM}: {len(batch_text)} chars"
+        )
+
+
+def test_build_batches_never_crosses_speaker_boundary():
+    """Segments from different speakers must never be merged into one batch item."""
+    from broadcast2summary.translate import _build_translation_batches
+
+    segs = [
+        Segment(start=0.0, end=1.0, text="Speaker A says this", speaker_id="SPEAKER_00"),
+        Segment(start=1.0, end=2.0, text="Speaker B responds now", speaker_id="SPEAKER_01"),
+    ]
+    batches = _build_translation_batches(segs)
+
+    assert len(batches) == 2
+    assert batches[0][0].speaker_id == "SPEAKER_00"
+    assert batches[1][0].speaker_id == "SPEAKER_01"
+
+
+def test_build_batches_anonymous_segments_never_merge():
+    """Anonymous segments (speaker_id=None) must each be their own batch item."""
+    from broadcast2summary.translate import _build_translation_batches
+
+    segs = [
+        Segment(start=float(i), end=float(i + 1), text=f"text {i}",
+                speaker_id=None, speaker_name=None)
+        for i in range(5)
+    ]
+    batches = _build_translation_batches(segs)
+    assert len(batches) == 5, "Each anonymous segment must be its own batch item"
+
+
+def test_build_batches_never_splits_mid_segment():
+    """A single oversized segment must never be split — it gets its own batch item."""
+    from broadcast2summary.translate import _build_translation_batches, MAX_CHARS_PER_ITEM
+
+    oversized = Segment(
+        start=0.0, end=5.0,
+        text="x" * (MAX_CHARS_PER_ITEM + 100),
+        speaker_id="SPEAKER_00",
+    )
+    normal = Segment(start=5.0, end=6.0, text="normal", speaker_id="SPEAKER_00")
+    batches = _build_translation_batches([oversized, normal])
+
+    # Oversized must be alone; normal may be in a separate batch or same if fits
+    assert batches[0][0] is oversized, "Oversized segment must be first in its own batch"
+    total_segs = sum(len(b) for b in batches)
+    assert total_segs == 2, "All segments must be present after batching"
+
+
+def test_translate_segments_output_token_bound():
+    """With MAX_CHARS_PER_ITEM and BATCH_SIZE=30, output tokens never exceed 4096.
+
+    Math:
+      max_output_chars = BATCH_SIZE × MAX_CHARS_PER_ITEM × 0.7  (en→zh length ratio)
+      max_output_tokens = max_output_chars / 2.0                 (zh chars per token, DeepSeek V3)
+      Must be < 4096 for any single API call.
+    """
+    from broadcast2summary.translate import MAX_CHARS_PER_ITEM, _BATCH_SIZE
+
+    EN_TO_ZH_RATIO = 0.7   # Chinese output is ~70% of English input length
+    ZH_CHARS_PER_TOKEN = 2.0  # DeepSeek V3 128K vocab: ~2 chars per Chinese token
+
+    max_output_tokens = (_BATCH_SIZE * MAX_CHARS_PER_ITEM * EN_TO_ZH_RATIO) / ZH_CHARS_PER_TOKEN
+    assert max_output_tokens < 4096, (
+        f"Math guarantee violated: {max_output_tokens:.0f} tokens ≥ 4096 "
+        f"(BATCH_SIZE={_BATCH_SIZE}, MAX_CHARS_PER_ITEM={MAX_CHARS_PER_ITEM})"
+    )

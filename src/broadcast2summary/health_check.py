@@ -128,7 +128,7 @@ def _check(local_path: Path, *, language: str, cache_dir: Path) -> list[str]:
             translated = [l for l in transcript_body.splitlines() if l.startswith("[译]")]
             if not translated:
                 issues.append("translation_missing")
-            elif len(translated) < len(ts_lines) * 0.9:
+            elif len(translated) < len(ts_lines) * 0.98:
                 issues.append("translation_partial")
 
         turns_cache = cache_dir / "turns.json"
