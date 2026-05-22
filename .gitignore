@@ -36,3 +36,4 @@ config/feeds.yaml
 # Generated docs (keep source .md)
 docs/superpowers/specs/*.html
 docs/superpowers/plans/*.html
+scripts/translate_playground.html
