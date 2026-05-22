@@ -1,7 +1,7 @@
 import re
 import pytest
 from broadcast2summary.transcribe import Segment
-from broadcast2summary.translate import translate_segments, _parse_numbered
+from broadcast2summary.translate import translate_segments, _parse_numbered, _group_by_speaker
 
 
 # ---------------------------------------------------------------------------
@@ -146,3 +146,83 @@ def test_translate_segments_quote_in_english_source():
     segs = [Segment(start=0.0, end=5.0, text='Jensen said "we need 10x"')]
     result = translate_segments(segs, FakeDeepSeek())
     assert '"' in result[0].translation
+
+
+# ---------------------------------------------------------------------------
+# Fix B: _group_by_speaker fallback when all speaker_id=None
+# ---------------------------------------------------------------------------
+
+def test_group_by_speaker_all_none_returns_one_group_per_segment():
+    """When every segment has speaker_id=None, collapse-to-1 must not happen.
+    Each segment must become its own group so translation isn't discarded."""
+    segs = [
+        Segment(start=0.0, end=2.0, text="Hello world", speaker_id=None, speaker_name=None),
+        Segment(start=2.0, end=4.0, text="How are you", speaker_id=None, speaker_name=None),
+        Segment(start=4.0, end=6.0, text="Fine thanks", speaker_id=None, speaker_name=None),
+    ]
+    groups = _group_by_speaker(segs)
+    assert len(groups) == 3, (
+        f"Expected 3 groups (one per segment) when all speaker_id=None, got {len(groups)}"
+    )
+
+
+def test_group_by_speaker_with_ids_still_groups_by_speaker():
+    """Existing behaviour: segments with the same speaker_id stay in the same group."""
+    segs = [
+        Segment(start=0.0, end=2.0, text="A", speaker_id="SPEAKER_00"),
+        Segment(start=2.0, end=4.0, text="B", speaker_id="SPEAKER_00"),
+        Segment(start=4.0, end=6.0, text="C", speaker_id="SPEAKER_01"),
+    ]
+    groups = _group_by_speaker(segs)
+    assert len(groups) == 2
+    assert len(groups[0]) == 2
+    assert len(groups[1]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix C: translate_segments must batch at most 30 groups per DeepSeek call
+# ---------------------------------------------------------------------------
+
+def test_translate_segments_batches_more_than_30_groups():
+    """35 distinct-speaker segments → must call complete() at least twice (≤30 per call)."""
+    call_prompts: list[str] = []
+
+    class TrackingDeepSeek:
+        def complete(self, prompt, *, temperature):
+            call_prompts.append(prompt)
+            n = len(re.findall(r'^\d+[.,、]', prompt, re.MULTILINE))
+            return "\n".join(f"{i + 1}. 译{i + 1}" for i in range(n))
+
+    segs = [
+        Segment(start=float(i), end=float(i + 1), text=f"segment {i}",
+                speaker_id=f"SPEAKER_{i:02d}")
+        for i in range(35)
+    ]
+    result = translate_segments(segs, TrackingDeepSeek())
+
+    assert len(call_prompts) >= 2, "Expected ≥2 API calls for 35 groups (batch size 30)"
+    for prompt in call_prompts:
+        n = len(re.findall(r'^\d+[.,、]', prompt, re.MULTILINE))
+        assert n <= 30, f"A single call contained {n} groups, exceeds batch limit of 30"
+
+    # All 35 segments should have a translation
+    assert all(s.translation for s in result if result.index(s) % 1 == 0)
+
+
+def test_translate_segments_single_call_for_30_groups():
+    """Exactly 30 groups → single API call (no unnecessary batching)."""
+    call_count = {"n": 0}
+
+    class CountingDeepSeek:
+        def complete(self, prompt, *, temperature):
+            call_count["n"] += 1
+            n = len(re.findall(r'^\d+[.,、]', prompt, re.MULTILINE))
+            return "\n".join(f"{i + 1}. 译{i + 1}" for i in range(n))
+
+    segs = [
+        Segment(start=float(i), end=float(i + 1), text=f"seg {i}",
+                speaker_id=f"SPEAKER_{i:02d}")
+        for i in range(30)
+    ]
+    translate_segments(segs, CountingDeepSeek())
+    assert call_count["n"] == 1, "30 groups should fit in a single API call"

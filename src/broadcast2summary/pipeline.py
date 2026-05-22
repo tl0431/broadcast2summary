@@ -79,7 +79,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 logger.info("diarization loaded from cache for %s", ep.guid)
             else:
                 try:
-                    _assert_memory_available(required_gb=2.0, stage="diarization")
+                    _assert_memory_available(required_gb=1.7, stage="diarization")
                     turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
                     _save_turns(turns, turns_cache)
                 except Exception:
@@ -245,7 +245,9 @@ def _save_transcript(result: TranscriptionResult, path: Path) -> None:
             for s in result.segments
         ],
     }
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(path)
 
 
 def _load_transcript(path: Path) -> TranscriptionResult:
@@ -257,11 +259,13 @@ def _load_transcript(path: Path) -> TranscriptionResult:
 
 
 def _save_turns(turns: list[SpeakerTurn], path: Path) -> None:
-    path.write_text(
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(
         json.dumps([{"speaker_id": t.speaker_id, "start": t.start, "end": t.end}
                     for t in turns], ensure_ascii=False),
         encoding="utf-8",
     )
+    tmp.rename(path)
 
 
 def _load_turns(path: Path) -> list[SpeakerTurn]:

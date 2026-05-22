@@ -99,6 +99,14 @@ class State:
             ).fetchone()
         return row is not None
 
+    def processed_guids(self) -> set[str]:
+        """Return the set of all successfully processed episode GUIDs."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT guid FROM processed_episodes WHERE status = 'success'"
+            ).fetchall()
+        return {r["guid"] for r in rows}
+
     def record_episode(self, rec: EpisodeRecord) -> None:
         with self._conn() as c:
             c.execute(

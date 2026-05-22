@@ -71,7 +71,7 @@ def check_and_repair(
     logger.warning("health check issues for %s: %s", local_path.name, issues)
 
     for issue in list(issues):
-        if issue == "translation_missing":
+        if issue in ("translation_missing", "translation_partial"):
             if deepseek is not None:
                 _repair_translation(local_path, cache_dir=cache_dir, deepseek=deepseek)
             else:
@@ -128,6 +128,8 @@ def _check(local_path: Path, *, language: str, cache_dir: Path) -> list[str]:
             translated = [l for l in transcript_body.splitlines() if l.startswith("[译]")]
             if not translated:
                 issues.append("translation_missing")
+            elif len(translated) < len(ts_lines) * 0.9:
+                issues.append("translation_partial")
 
         turns_cache = cache_dir / "turns.json"
         if ts_lines and turns_cache.exists():

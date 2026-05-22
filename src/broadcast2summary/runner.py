@@ -1,7 +1,10 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import os
+import signal
+import sys
 from urllib.parse import urlparse
 import logging
 import threading
@@ -133,12 +136,45 @@ def _fetch_feed_xml(rss_url: str) -> str:
     return httpx.get(rss_url, timeout=30, follow_redirects=True).text
 
 
+def _recover_stale_caches(*, cache_root: Path, state: State) -> None:
+    """Delete corrupt cache files left by a previous SIGKILL.
+
+    A cache dir whose JSON files are unreadable means the process was killed
+    mid-write. Deleting them lets the episode retry from scratch on the next run.
+    Episodes that are already recorded as 'success' in the DB are skipped.
+    """
+    if not cache_root.exists():
+        return
+    processed_guids = state.processed_guids()
+    for guid_dir in cache_root.iterdir():
+        if not guid_dir.is_dir():
+            continue
+        if guid_dir.name in processed_guids:
+            continue
+        for fname in ("transcript.json", "turns.json"):
+            fpath = guid_dir / fname
+            if not fpath.exists():
+                continue
+            try:
+                json.loads(fpath.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("corrupt cache file deleted (SIGKILL recovery): %s", fpath)
+                fpath.unlink(missing_ok=True)
+
+
 def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int:
+    def _sigterm_handler(signum, frame):
+        logger.warning("SIGTERM received — exiting cleanly before SIGKILL")
+        sys.exit(1)
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     cfg = _load()
     state_dir = cfg.paths.state_dir
     state_dir.mkdir(parents=True, exist_ok=True)
     state = State(state_dir / "processed.db")
     state.init_schema()
+    _recover_stale_caches(cache_root=state_dir / "cache", state=state)
     log_file = configure_run_logging(
         log_dir=cfg.paths.log_dir,
         run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),

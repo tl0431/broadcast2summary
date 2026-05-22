@@ -508,3 +508,89 @@ def test_speaker_names_applied_from_summary(tmp_path: Path, fixtures_dir, monkey
     assert result.success is True
     assert captured == [{"SPEAKER_00": "雅贤"}]
 
+
+# ---------------------------------------------------------------------------
+# Fix D: diarization memory threshold must be 1.7 GB (not 2.0)
+# ---------------------------------------------------------------------------
+
+def test_diarization_threshold_is_1_7_not_2_0(monkeypatch):
+    """_assert_memory_available must not raise when 1.8GB free and threshold=1.7.
+    Before fix the call site used 2.0, so 1.8 < 2.0 → MemoryError was raised."""
+    import sys
+    import types
+
+    fake_psutil = types.ModuleType("psutil")
+
+    class _FakeMem:
+        available = 1.8 * 1e9
+
+    fake_psutil.virtual_memory = lambda: _FakeMem()
+    monkeypatch.setitem(sys.modules, "psutil", fake_psutil)
+
+    from broadcast2summary.pipeline import _assert_memory_available
+    # With old threshold (2.0): 1.8 < 2.0 → would raise
+    import pytest as _pytest
+    with _pytest.raises(MemoryError):
+        _assert_memory_available(required_gb=2.0, stage="old-threshold-check")
+
+    # With new threshold (1.7): 1.8 ≥ 1.7 → must NOT raise
+    _assert_memory_available(required_gb=1.7, stage="diarization")
+
+
+# ---------------------------------------------------------------------------
+# Fix F: _save_transcript and _save_turns must use atomic rename
+# ---------------------------------------------------------------------------
+
+def test_save_transcript_uses_atomic_rename(monkeypatch, tmp_path):
+    """_save_transcript must write to .tmp then rename — not write_text directly."""
+    from pathlib import Path as _Path
+    from broadcast2summary.pipeline import _save_transcript
+    from broadcast2summary.transcribe import TranscriptionResult, Segment
+    import json
+
+    rename_calls: list[tuple[str, str]] = []
+    original_rename = _Path.rename
+
+    def tracking_rename(self, target):
+        rename_calls.append((str(self), str(target)))
+        return original_rename(self, target)
+
+    monkeypatch.setattr(_Path, "rename", tracking_rename)
+
+    result = TranscriptionResult(language="zh", segments=[
+        Segment(start=0.0, end=1.0, text="hello")
+    ])
+    path = tmp_path / "transcript.json"
+    _save_transcript(result, path)
+
+    assert path.exists(), "Final transcript.json must exist after _save_transcript"
+    assert json.loads(path.read_text())["language"] == "zh"
+    assert any(str(path) == tgt for _, tgt in rename_calls), \
+        "_save_transcript must rename to final path (atomic write)"
+    assert not any(p.endswith(".tmp") for p, _ in rename_calls if Path(p).exists()), \
+        ".tmp file must not linger after rename"
+
+
+def test_save_turns_uses_atomic_rename(monkeypatch, tmp_path):
+    """_save_turns must write to .tmp then rename."""
+    from pathlib import Path as _Path
+    from broadcast2summary.pipeline import _save_turns
+    from broadcast2summary.diarize import SpeakerTurn
+
+    rename_calls: list[tuple[str, str]] = []
+    original_rename = _Path.rename
+
+    def tracking_rename(self, target):
+        rename_calls.append((str(self), str(target)))
+        return original_rename(self, target)
+
+    monkeypatch.setattr(_Path, "rename", tracking_rename)
+
+    turns = [SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=5.0)]
+    path = tmp_path / "turns.json"
+    _save_turns(turns, path)
+
+    assert path.exists()
+    assert any(str(path) == tgt for _, tgt in rename_calls), \
+        "_save_turns must rename to final path (atomic write)"
+
