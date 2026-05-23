@@ -16,6 +16,7 @@ from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, M
 from .output_local import write_local_markdown
 from .output_im import push_summary_to_im, push_failure_to_im
 from .output_wiki import push_summary_to_wiki
+from .health_check import check_and_repair
 from .lark_client import LarkClient
 from .translate import translate_segments
 
@@ -82,11 +83,20 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                     _assert_memory_available(required_gb=1.7, stage="diarization")
                     turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
                     _save_turns(turns, turns_cache)
-                except Exception:
+                except Exception as _diar_exc:
                     logger.exception(
                         "diarization failed for %s — continuing without speaker labels",
                         ep.guid,
                     )
+                    try:
+                        if deps.lark and deps.im_target:
+                            push_failure_to_im(
+                                lark=deps.lark, target_open_id=deps.im_target,
+                                feed_name=ep.feed_name, episode_title=ep.title,
+                                stage="diarization", error=str(_diar_exc),
+                            )
+                    except Exception:
+                        pass
                 finally:
                     release_pipeline()
 
@@ -150,10 +160,19 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             translated_segments = translate_segments(
                 transcription.segments, deps.deepseek
             )
-        except Exception:
+        except Exception as _trans_exc:
             logger.exception("translation failed for %s — continuing without translation",
                              ep.guid)
             translated_segments = transcription.segments
+            try:
+                if deps.lark and deps.im_target:
+                    push_failure_to_im(
+                        lark=deps.lark, target_open_id=deps.im_target,
+                        feed_name=ep.feed_name, episode_title=ep.title,
+                        stage="translation", error=str(_trans_exc),
+                    )
+            except Exception:
+                pass
     else:
         translated_segments = transcription.segments
 
@@ -173,7 +192,6 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         return _record_failure(deps, ep, "output_local", e, now, mp3_path=None)
 
     # ---- health check & repair (before external pushes so they get clean content) ----
-    from .health_check import check_and_repair
     healthy = check_and_repair(
         local_path=local_path,
         cache_dir=cache_dir,
@@ -212,9 +230,15 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     except Exception:
         logger.exception("IM push failed for %s — continuing", ep.guid)
 
-    # ---- clean up cache only when all checks passed ----
-    if healthy:
-        shutil.rmtree(cache_dir, ignore_errors=True)
+    # ---- clean up cache and record success only when health check fully passed ----
+    if not healthy:
+        # Cache preserved for retry; return failure so episode re-enters failed_queue.
+        return _record_failure(
+            deps, ep, "health_check",
+            RuntimeError("health_check issues remain after auto-repair"),
+            now, mp3_path=None,
+        )
+    shutil.rmtree(cache_dir, ignore_errors=True)
     deps.state.record_episode(EpisodeRecord(
         guid=ep.guid, feed_name=ep.feed_name, title=ep.title, pub_date=ep.pub_date,
         processed_at=now, status="success",

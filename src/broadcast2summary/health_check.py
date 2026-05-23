@@ -33,7 +33,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_TS_RE = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\]\s+\[([^\]]+)\]\s+(.+)$')
+# Speaker bracket is optional: matches both "[HH:MM:SS] [Speaker] text" and "[HH:MM:SS] text".
+# group(1)=timestamp, group(2)=speaker-or-None, group(3)=text
+_TS_RE = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\](?:\s+\[([^\]]+)\])?\s+(.+)$')
 _REQUIRED_SECTIONS = ["## 完整转写"]
 _SUMMARY_SECTIONS = ["## TL;DR", "## 核心要点"]
 
@@ -180,6 +182,8 @@ def _repair_translation(local_path: Path, *, cache_dir: Path, deepseek: "LLMClie
 
 def _patch_translations_from_markdown(local_path: Path, *, deepseek: "LLMClient") -> None:
     """Fallback: parse English lines from markdown, translate, insert [译] lines."""
+    from .translate import _translate_batch, _BATCH_SIZE, MAX_CHARS_PER_ITEM
+
     content = local_path.read_text(encoding="utf-8")
     lines = content.splitlines()
 
@@ -198,26 +202,30 @@ def _patch_translations_from_markdown(local_path: Path, *, deepseek: "LLMClient"
     if not need:
         return
 
-    BATCH = 30
-    _NUMBERED_RE = re.compile(r'^(\d+)[.、]\s*(.+)', re.MULTILINE)
+    # Char-aware batching: flush when item count or total chars would exceed safe limits.
+    # Oversized single items (> MAX_BATCH_CHARS) still go alone — cannot split mid-line.
+    MAX_BATCH_CHARS = MAX_CHARS_PER_ITEM * _BATCH_SIZE
     all_translations: list[str] = []
-    for start in range(0, len(need), BATCH):
-        batch = [t for _, t in need[start:start + BATCH]]
-        numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(batch))
-        prompt = (
-            f"将以下 {len(batch)} 段英文播客逐段翻译成中文。\n"
-            "按序输出，每段一行，格式为「序号. 译文」，不要其他内容：\n\n"
-            + numbered
-        )
-        try:
-            raw = deepseek.complete(prompt, temperature=0.1)
-            parsed = {int(m.group(1)): m.group(2).strip()
-                      for m in _NUMBERED_RE.finditer(raw)
-                      if 1 <= int(m.group(1)) <= len(batch)}
-            all_translations.extend(parsed.get(i + 1, "") for i in range(len(batch)))
-        except Exception:
-            logger.exception("batch translation failed")
-            all_translations.extend("" for _ in batch)
+    batch_texts: list[str] = []
+    batch_chars = 0
+
+    def _flush() -> None:
+        if not batch_texts:
+            return
+        all_translations.extend(_translate_batch(list(batch_texts), deepseek))
+        batch_texts.clear()
+
+    for _, text in need:
+        text_chars = len(text)
+        if batch_texts and (
+            len(batch_texts) >= _BATCH_SIZE
+            or batch_chars + text_chars > MAX_BATCH_CHARS
+        ):
+            _flush()
+            batch_chars = 0
+        batch_texts.append(text)
+        batch_chars += text_chars
+    _flush()
 
     for (line_idx, _), translation in zip(reversed(need), reversed(all_translations)):
         if translation:

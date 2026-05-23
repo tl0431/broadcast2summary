@@ -594,3 +594,177 @@ def test_save_turns_uses_atomic_rename(monkeypatch, tmp_path):
     assert any(str(path) == tgt for _, tgt in rename_calls), \
         "_save_turns must rename to final path (atomic write)"
 
+
+# ---------------------------------------------------------------------------
+# Bug 2: healthy=False must NOT record status=success
+# ---------------------------------------------------------------------------
+
+def _make_long_transcript(tmp_path: Path, language: str = "zh") -> Path:
+    segs = [{"start": float(i), "end": float(i + 5), "text": "内容描述 " * 40}
+            for i in range(0, 500, 5)]
+    f = tmp_path / "t.json"
+    f.write_text(json.dumps({"language": language, "segments": segs}), encoding="utf-8")
+    return f
+
+
+def test_health_check_fail_does_not_record_success(tmp_path, fixtures_dir, monkeypatch):
+    """When check_and_repair returns False, episode must not be recorded as success
+    and must appear in failed_queue for retry."""
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.check_and_repair",
+        lambda **kwargs: False,
+    )
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    transcript_file = _make_long_transcript(tmp_path)
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(
+            deepseek=[summary_json, summary_json], claude=[summary_json]
+        ),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+    )
+    ep = Episode(
+        guid="hc_fail", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+
+    result = process_episode(ep, deps=deps)
+
+    assert result.success is False, "health_check fail must return success=False"
+    assert not state.is_processed("hc_fail"), (
+        "must not write status=success to DB when health_check returns False"
+    )
+    failed = state.list_failed()
+    assert any(r.guid == "hc_fail" for r in failed), (
+        "episode must be in failed_queue so it can be retried"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gap 1: soft failures (translation, diarization) must trigger IM warning
+# ---------------------------------------------------------------------------
+
+def test_translation_exception_sends_im_warning(tmp_path, fixtures_dir, monkeypatch):
+    """When translate_segments raises, push_failure_to_im must be called with stage='translation'."""
+    im_failure_calls: list[dict] = []
+
+    # Suppress diarization and memory check so the episode reaches translation cleanly
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+    monkeypatch.setattr("broadcast2summary.pipeline.diarize_audio", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.translate_segments",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("deepseek timeout")),
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.push_failure_to_im",
+        lambda **kwargs: im_failure_calls.append(kwargs),
+    )
+    # health_check True so the episode succeeds (avoids a second push_failure_to_im call)
+    monkeypatch.setattr("broadcast2summary.pipeline.check_and_repair", lambda **kwargs: True)
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+
+    # language="en" triggers translation; long Chinese-text segments pass quality ratio check
+    transcript_file = _make_long_transcript(tmp_path, language="en")
+
+    class FakeLark:
+        def run(self, args, **kw): return ""
+
+    class _FakeDeepSeek:  # non-None so translation block is entered; translate_segments is monkeypatched
+        def complete(self, prompt, **kw): return ""
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(
+            deepseek=[summary_json, summary_json], claude=[summary_json]
+        ),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target="ou_test",
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        lark=FakeLark(),
+        deepseek=_FakeDeepSeek(),
+        diarization_enabled=True,
+    )
+    ep = Episode(
+        guid="trans_fail", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+
+    process_episode(ep, deps=deps)
+
+    assert any(c.get("stage") == "translation" for c in im_failure_calls), (
+        f"Expected push_failure_to_im(stage='translation'), got calls: {im_failure_calls}"
+    )
+
+
+def test_diarization_exception_sends_im_warning(tmp_path, fixtures_dir, monkeypatch):
+    """When diarize_audio raises, push_failure_to_im must be called with stage='diarization'."""
+    im_failure_calls: list[dict] = []
+
+    monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.diarize_audio",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("vad boom")),
+    )
+    monkeypatch.setattr(
+        "broadcast2summary.pipeline.push_failure_to_im",
+        lambda **kwargs: im_failure_calls.append(kwargs),
+    )
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    summary_json = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    transcript_file = _make_long_transcript(tmp_path)
+
+    class FakeLark:
+        def run(self, args, **kw): return ""
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(transcript_file),
+        summarize_stubs=SummarizeStubs(
+            deepseek=[summary_json, summary_json], claude=[summary_json]
+        ),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target="ou_test",
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        lark=FakeLark(),
+        diarization_enabled=True,
+    )
+    ep = Episode(
+        guid="diar_fail", title="t", pub_date="2026-05-16T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600, feed_name="test",
+    )
+
+    result = process_episode(ep, deps=deps)
+
+    assert result.success is True, "diarization is a soft failure — episode must still succeed"
+    assert any(c.get("stage") == "diarization" for c in im_failure_calls), (
+        f"Expected push_failure_to_im(stage='diarization'), got calls: {im_failure_calls}"
+    )
+

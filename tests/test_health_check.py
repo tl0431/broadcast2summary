@@ -66,3 +66,98 @@ def test_check_partial_threshold_is_98_percent(tmp_path):
     cache_bad = tmp_path / "cache_bad"
     cache_bad.mkdir()
     assert "translation_partial" in _check(md_bad, language="en", cache_dir=cache_bad)
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: _TS_RE must match no-speaker format [HH:MM:SS] text
+# ---------------------------------------------------------------------------
+
+def _make_md_no_speaker(tmp_path: Path, *, ts_count: int, translated_count: int) -> Path:
+    """Helper: create md with [HH:MM:SS] text format (no speaker bracket)."""
+    md = tmp_path / "ep_ns.md"
+    body = ["## TL;DR\n\nSummary here.\n\n## 核心要点\n\n- point\n\n## 完整转写\n\n"]
+    for i in range(ts_count):
+        body.append(f"[00:{i:02d}:00] English text segment {i}\n\n")
+        if i < translated_count:
+            body.append(f"[译] 中文翻译 {i}\n\n")
+    md.write_text("".join(body), encoding="utf-8")
+    return md
+
+
+def test_check_detects_translation_missing_no_speaker_format(tmp_path):
+    """[HH:MM:SS] text format (no speaker bracket) with 0 [译] → translation_missing."""
+    md = _make_md_no_speaker(tmp_path, ts_count=5, translated_count=0)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    issues = _check(md, language="en", cache_dir=cache)
+    assert "translation_missing" in issues, (
+        f"Expected translation_missing for no-speaker format with 0 translations, got: {issues}"
+    )
+
+
+def test_check_detects_translation_partial_no_speaker_format(tmp_path):
+    """[HH:MM:SS] text format (no speaker bracket) with partial [译] → translation_partial."""
+    md = _make_md_no_speaker(tmp_path, ts_count=10, translated_count=2)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    issues = _check(md, language="en", cache_dir=cache)
+    assert "translation_partial" in issues, (
+        f"Expected translation_partial for no-speaker format, got: {issues}"
+    )
+
+
+def test_patch_from_markdown_handles_no_speaker_format(tmp_path):
+    """_patch_translations_from_markdown must find and translate [HH:MM:SS] text lines."""
+    from broadcast2summary.health_check import _patch_translations_from_markdown
+
+    content = "## 完整转写\n\n[00:00:00] Hello world\n\n[00:01:00] How are you\n\n"
+    md = tmp_path / "ep.md"
+    md.write_text(content, encoding="utf-8")
+
+    class FakeDeepSeek:
+        def complete(self, prompt, **kwargs):
+            return "1. 你好世界\n2. 你好吗"
+
+    _patch_translations_from_markdown(md, deepseek=FakeDeepSeek())
+
+    result = md.read_text(encoding="utf-8")
+    assert "[译]" in result, (
+        "No [译] lines inserted — no-speaker [HH:MM:SS] format not recognized by _TS_RE"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gap 2: _patch_translations_from_markdown must respect char limit per batch
+# ---------------------------------------------------------------------------
+
+def test_patch_from_markdown_char_limit_splits_batches(tmp_path):
+    """_patch_translations_from_markdown must split into ≥2 calls when total chars exceed limit."""
+    import re as _re
+    from broadcast2summary.translate import MAX_CHARS_PER_ITEM, _BATCH_SIZE
+    from broadcast2summary.health_check import _patch_translations_from_markdown
+
+    MAX_BATCH_CHARS = MAX_CHARS_PER_ITEM * _BATCH_SIZE  # 9000
+    # Two items each > half the limit → together exceed MAX_BATCH_CHARS
+    item_chars = MAX_BATCH_CHARS // 2 + 1  # 4501 chars each
+
+    # Use with-speaker format so this test is independent of Bug 1 fix
+    content = "## 完整转写\n\n"
+    for i in range(2):
+        content += f"[00:{i:02d}:00] [SPEAKER_00] {'x' * item_chars}\n\n"
+    md = tmp_path / "ep.md"
+    md.write_text(content, encoding="utf-8")
+
+    call_count = {"n": 0}
+
+    class TrackingDeepSeek:
+        def complete(self, prompt, **kwargs):
+            call_count["n"] += 1
+            n = len(_re.findall(r'^\d+[.、]', prompt, _re.MULTILINE))
+            return "\n".join(f"{i + 1}. 译{i + 1}" for i in range(n))
+
+    _patch_translations_from_markdown(md, deepseek=TrackingDeepSeek())
+
+    assert call_count["n"] >= 2, (
+        f"Expected ≥2 API calls when 2 items total {item_chars * 2} chars > {MAX_BATCH_CHARS}, "
+        f"got {call_count['n']} call(s)"
+    )
