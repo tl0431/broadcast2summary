@@ -38,6 +38,45 @@ _E237_SNIPPET = """\
 # 1. Prompt schema contains asr_corrections
 # ---------------------------------------------------------------------------
 
+def test_asr_corrections_prompt_instructs_guest_name_crosscheck():
+    """Prompt must explicitly link guest names to asr_corrections cross-check.
+
+    Badcase: episode title says '梦琪', LLM writes guests=['梦琪'], but transcript has
+    '孟琪' (same pronunciation). The prompt must explicitly tell LLM:
+    "check if guest names appear as same-pronunciation variants in the transcript."
+    A generic '同音' mention without connecting it to 'guests' is insufficient.
+    """
+    prompt = render_summary_prompt(
+        show_name="42章经",
+        episode_title="对谈 invoko.ai 创始人梦琪",
+        duration_minutes=68,
+        transcript_with_timestamps="[00:00:00] invoko.ai的创始人孟琪。孟琪前两年在圈内也是蛮有名的。",
+        guests_hint="梦琪",
+        include_speaker_names=True,
+    )
+    # Must explicitly connect guest-name verification to asr_corrections.
+    # "人名" is the key word absent from current prompt that indicates this instruction.
+    assert "guests" in prompt and "asr_corrections" in prompt and "人名" in prompt, (
+        "prompt must explicitly instruct: cross-check guest 人名 against transcript for "
+        "same-pronunciation errors — '人名' keyword is absent from current prompt"
+    )
+
+
+def test_synthesis_prompt_instructs_guest_name_crosscheck():
+    """synthesis prompt must also instruct guest-name cross-check for map-reduce path."""
+    prompt = render_synthesis_prompt(
+        show_name="42章经",
+        episode_title="对谈 invoko.ai 创始人梦琪",
+        duration_minutes=68,
+        total_chunks=4,
+        mini_summaries="嘉宾梦琪分享创业历程。主持人杨树梁提问。",
+        include_speaker_names=True,
+    )
+    assert "guests" in prompt and "asr_corrections" in prompt and "人名" in prompt, (
+        "synthesis prompt must explicitly instruct guest-name cross-check"
+    )
+
+
 def test_summary_prompt_schema_contains_asr_corrections():
     prompt = render_summary_prompt(
         show_name="硅谷101",

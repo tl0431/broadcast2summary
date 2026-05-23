@@ -33,7 +33,7 @@ _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS = """{{
   "chapters": [{{"ts_start": "HH:MM:SS", "ts_end": "HH:MM:SS", "title": "...", "summary": "..."}}],
   "guests": ["嘉宾姓名列表"],
   "actionable_items": ["听众可执行的具体建议,可空"],
-  "speaker_names": {{"SPEAKER_00": {{"name": "嘉宾真名或null", "confidence": 0.9}}, "SPEAKER_01": {{"name": null, "confidence": 0.0}}}},
+  "speaker_names": {{"SPEAKER_00": {{"name": "真实姓名或null", "confidence": 0.9}}, "SPEAKER_01": {{"name": "真实姓名或null", "confidence": 0.8}}}},
   "asr_corrections": {{"错误汉字": "正确词"}}
 }}"""
 
@@ -43,7 +43,7 @@ _SUMMARY_REQUIREMENTS_BASE = """要求:
 3. 不要编造原文未出现的信息
 4. 拒绝使用"作为 AI 助手"等元话语
 5. 原始转写来自 ASR,可能存在同音字误识或英文术语错拼(例:CAR-T 被识别成 Carty)。摘要里使用通用规范写法,不要复刻原文错字。完整转写本身保持 ASR 原貌,作为可追溯证据。
-6. asr_corrections 字段：若发现转写中有明显 ASR 误识别（同音、近音以及英文和中文混淆），结合转写稿前的标题、TL;DR、核心要点、提到的资源和章节笔记，在完整转写的部分里，输出纠错映射 {{"错误识别": "正确词"}}。无明显错误则输出空对象 {{}}。要求同时参考上述内容以及考虑纠错候选词本身在该内容下的可能热度，保持英文缩写（包括但不限于大小写）在转写全文下的一致性，以及在所有语境下都高频的明显错误。"""
+6. asr_corrections 字段：若发现转写中有明显 ASR 误识别（同音、近音以及英文和中文混淆），结合转写稿前的标题、TL;DR、核心要点、提到的资源和章节笔记，在完整转写的部分里，输出纠错映射 {{"错误识别": "正确词"}}。无明显错误则输出空对象 {{}}。要求同时参考上述内容以及考虑纠错候选词本身在该内容下的可能热度，保持英文缩写（包括但不限于大小写）在转写全文下的一致性，以及在所有语境下都高频的明显错误。特别注意：将 guests 字段中识别出的嘉宾人名与转写逐一对照，若转写中出现同音异字的错误写法（如 guests 中有"梦琪"而转写出现"孟琪"），必须加入 asr_corrections。"""
 
 _SUMMARY_REQUIREMENTS_WITH_SPEAKERS = _SUMMARY_REQUIREMENTS_BASE + """
 6. 如果转写包含 [SPEAKER_XX] 标注,在 speaker_names 字段为每个说话人返回 {{"name": 真实姓名或null, "confidence": 置信度}}。
@@ -66,6 +66,7 @@ _CHUNK_SUMMARY_PROMPT = """你是播客内容助手。这是「{show_name}」播
 3. 值得保留的金句（用引号包裹原文，如有）
 4. 嘉宾姓名（如本段首次出现）
 5. 提到的书/工具/网站等资源
+6. 疑似 ASR 同音误识别（每条格式：`错误词→正确词`，无则跳过此项）
 
 【转写】
 {chunk}"""
