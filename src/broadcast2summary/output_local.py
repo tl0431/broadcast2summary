@@ -100,8 +100,19 @@ def _render_transcript_section(segments, *, language: str = "zh") -> str:
     return "\n".join(lines)
 
 
-def _group_segments(segments, *, gap_threshold: float = 5.0, max_block_secs: float = 120.0) -> list:
-    """Merge consecutive same-speaker segments into paragraph blocks."""
+def _group_segments(
+    segments,
+    *,
+    gap_threshold: float = 5.0,
+    max_block_secs: float = 120.0,
+    max_block_chars: int = 2048,
+) -> list:
+    """Merge consecutive same-speaker segments into paragraph blocks.
+
+    Stops adding to a block when the next segment would push total chars over
+    max_block_chars, keeping output within DeepSeek's safe translation limit.
+    A single segment that already exceeds the limit still forms its own block.
+    """
     if not segments:
         return []
     blocks: list[list] = []
@@ -112,7 +123,9 @@ def _group_segments(segments, *, gap_threshold: float = 5.0, max_block_secs: flo
         time_gap = seg.start - prev.end > gap_threshold
         no_speaker = not (seg.speaker_name or seg.speaker_id)
         block_too_long = no_speaker and (seg.start - current[0].start) > max_block_secs
-        if speaker_changed or time_gap or block_too_long:
+        current_chars = sum(len(s.text) for s in current)
+        block_too_many_chars = current_chars > 0 and current_chars + len(seg.text) > max_block_chars
+        if speaker_changed or time_gap or block_too_long or block_too_many_chars:
             blocks.append(current)
             current = [seg]
         else:

@@ -161,3 +161,46 @@ def test_patch_from_markdown_char_limit_splits_batches(tmp_path):
         f"Expected ≥2 API calls when 2 items total {item_chars * 2} chars > {MAX_BATCH_CHARS}, "
         f"got {call_count['n']} call(s)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Gap 2b: oversized single item (> MAX_CHARS_PER_ITEM) must be sent alone
+# ---------------------------------------------------------------------------
+
+def test_patch_from_markdown_oversized_item_sent_alone(tmp_path):
+    """Single item > MAX_CHARS_PER_ITEM must be isolated in its own _translate_batch call."""
+    import re as _re
+    from broadcast2summary.translate import MAX_CHARS_PER_ITEM
+    from broadcast2summary.health_check import _patch_translations_from_markdown
+
+    oversized = "x " * ((MAX_CHARS_PER_ITEM // 2) + 1)  # > 300 chars
+    short = "y " * 20  # ~40 chars
+
+    content = (
+        "## 完整转写\n\n"
+        f"[00:00:00] {short}\n\n"
+        f"[00:01:00] {oversized}\n\n"
+        f"[00:02:00] {short}\n\n"
+    )
+    md = tmp_path / "ep.md"
+    md.write_text(content, encoding="utf-8")
+
+    batches: list[list[str]] = []
+
+    class TrackingDeepSeek:
+        def complete(self, prompt, **kwargs):
+            items = _re.findall(r'^\d+\.\s+(.+)$', prompt, _re.MULTILINE)
+            batches.append(items)
+            return "\n".join(f"{i + 1}. 译{i + 1}" for i in range(len(items)))
+
+    _patch_translations_from_markdown(md, deepseek=TrackingDeepSeek())
+
+    oversized_strip = oversized.strip()
+    oversized_alone = any(
+        len(b) == 1 and b[0].strip() == oversized_strip
+        for b in batches
+    )
+    assert oversized_alone, (
+        f"Oversized item ({len(oversized)} chars > MAX {MAX_CHARS_PER_ITEM}) was not sent alone. "
+        f"Batch sizes: {[len(b) for b in batches]}"
+    )

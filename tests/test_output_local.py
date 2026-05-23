@@ -131,6 +131,49 @@ def test_render_markdown_unknown_speaker_id():
     assert "[SPEAKER_02]" in text
 
 
+# ---------------------------------------------------------------------------
+# _group_segments: max_block_chars stops accumulating before overflow
+# ---------------------------------------------------------------------------
+
+def test_group_segments_respects_max_block_chars():
+    """When adding next segment would exceed max_block_chars, start a new block."""
+    from broadcast2summary.transcribe import Segment
+    from broadcast2summary.output_local import _group_segments
+
+    # 3 segments, each 100 chars; limit = 250 → 3rd must go to a new block
+    text_100 = "x " * 50  # exactly 100 chars
+    segs = [
+        Segment(start=0.0,   end=1.0, text=text_100),
+        Segment(start=1.0,   end=2.0, text=text_100),
+        Segment(start=2.0,   end=3.0, text=text_100),
+    ]
+    blocks = _group_segments(segs, max_block_chars=250)
+    assert len(blocks) == 2, (
+        f"Expected 2 blocks (100+100 fits, 3rd overflows), got {len(blocks)}: "
+        f"{[sum(len(s.text) for s in b) for b in blocks]}"
+    )
+    assert len(blocks[0]) == 2  # first two segments together
+    assert len(blocks[1]) == 1  # third alone
+
+
+def test_group_segments_single_oversized_segment_is_own_block():
+    """A single segment > max_block_chars still forms its own block (no split)."""
+    from broadcast2summary.transcribe import Segment
+    from broadcast2summary.output_local import _group_segments
+
+    big = "y " * 200   # 400 chars > limit=300
+    small = "z " * 50  # 100 chars
+    segs = [
+        Segment(start=0.0, end=1.0, text=big),
+        Segment(start=1.0, end=2.0, text=small),
+    ]
+    blocks = _group_segments(segs, max_block_chars=300)
+    assert len(blocks) == 2, (
+        f"Oversized segment should be its own block, got {len(blocks)} block(s)"
+    )
+    assert blocks[0][0].text == big
+
+
 def test_render_markdown_bilingual_shows_translation():
     from broadcast2summary.transcribe import Segment
     from broadcast2summary.output_local import render_markdown

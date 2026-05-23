@@ -217,14 +217,19 @@ def _patch_translations_from_markdown(local_path: Path, *, deepseek: "LLMClient"
 
     for _, text in need:
         text_chars = len(text)
+        oversized = text_chars > MAX_CHARS_PER_ITEM
         if batch_texts and (
             len(batch_texts) >= _BATCH_SIZE
             or batch_chars + text_chars > MAX_BATCH_CHARS
+            or oversized
         ):
             _flush()
             batch_chars = 0
         batch_texts.append(text)
         batch_chars += text_chars
+        if oversized:
+            _flush()
+            batch_chars = 0
     _flush()
 
     for (line_idx, _), translation in zip(reversed(need), reversed(all_translations)):
