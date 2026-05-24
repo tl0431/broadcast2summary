@@ -165,7 +165,7 @@ launchctl start com.tl.broadcast2summary  # trigger immediately for testing
 bash scripts/uninstall_launchd.sh        # remove
 ```
 
-The launchd job runs under `caffeinate -i` to prevent macOS idle sleep from interrupting long downloads or transcription.
+The launchd job runs under `caffeinate -dims` to prevent macOS from sleeping during long diarization or transcription runs (`-d` display, `-i` idle, `-m` disk, `-s` system sleep on AC).
 
 Logs: `~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 

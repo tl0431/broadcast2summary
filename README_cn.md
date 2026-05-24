@@ -166,7 +166,7 @@ launchctl start com.tl.broadcast2summary  # 立即触发，用于测试
 bash scripts/uninstall_launchd.sh        # 卸载
 ```
 
-launchd 任务通过 `caffeinate -i` 运行，防止 macOS 空闲睡眠中断下载或转写。
+launchd 任务通过 `caffeinate -dims` 运行，防止 macOS 在长时间 diarization/转写期间休眠（-dims：显示器、空闲、磁盘、系统休眠）。
 
 日志：`~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 
