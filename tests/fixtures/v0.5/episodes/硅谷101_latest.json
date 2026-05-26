@@ -1,0 +1,34 @@
+{
+  "guid": "51260de8-60ef-4b76-b3e5-2e559c4a0923",
+  "title": "E238｜聊聊Harness时代AI-First的组织架构：从信任人到信任AI",
+  "pub_date": "2026-05-25T00:00:00Z",
+  "audio_url": "https://aphid.fireside.fm/d/1437767933/f0f20376-8faf-4940-b920-84af6c734e2d/51260de8-60ef-4b76-b3e5-2e559c4a0923.mp3",
+  "duration_seconds": 3920,
+  "feed_name": "硅谷101",
+  "wiki_node_token": null,
+  "language": "zh",
+  "shownotes": "“Harness Engineering”（挽具工程）正在成为硅谷的新共识，Anthropic、OpenAI等公司都在探索这一工程范式。但真正理解Harness的人还不多。前不久，一篇题为《Why Your “AI-First” Strategy Is Probably Wrong》的文章在X上获得百万级阅读和热议，作者是来自硅谷CreaoAI (http://creao.ai)的Peter Pang。在这篇文章里，Peter展示了Harness Agent系统激发出的极致效率：99%的代码由AI完成，每天平均3到8次生产部署，过去六周的产品流程，现在一天就能跑完。\n本期播客，主播泓君邀请到Creao的三位创始人，聊聊这家公司对Harness的实践，以及在组织AI-First转型上的深度思考。嘉宾们指出，AI-First不等于“使用AI”，想要把效率提升100倍、1000倍，就不能只把AI当成工具，而要让AI成为所有生产力的主导。组织转型最难跨出的一步在于——是否能让所有员工都能做到信任AI。\n这场对话中有一些有趣的观察，比如在Creao，市场不用再追着开发提需求，因为开发速度已经远超市场消化能力；当大量对齐工作被AI接管之后，拿掉产品经理，反而让团队效率大幅提升；初级工程师比资深工程师更适应AI时代的转型；尽管过去十年积累的专长正在快速贬值，但资深工程师仍然有竞争力，因为未来的核心竞争力不再是写代码，而是“找到AI Planning的缺陷”和“判断什么是有价值的”。\n【主播】\n泓君，硅谷101创始人，播客主理人\n【嘉宾】\nKai，Creao联合创始人/CEO\nPeter，Creao联合创始人/CTO\nClark，Creao联合创始人/CPO，clark@creao.ai (mailto:clark@creao.ai)\n【你将听到】\nAI 主导的效率革命\n02:32 什么是Harness（挽具）？\n03:09 Harness范围远大于prompt/context engineering，榨干大模型能力\n04:52 Harness成败在于，设计好系统自身的feedback loop\n07:11 传统软件静态人主导，Harness动态AI主导迭代\n08:10 一篇X爆文，揭秘CreaoAI的Harness实战\n09:53 AI-first第一步：重构流程，降低对齐成本\n13:19 思维转变：AI不是工具，是所有生产力的AI主导者\n14:01 放弃传统开会讨论，让AI主导对齐，沟通成本大幅降低\n19:12 Agent主导排查bug，50%以上问题由AutoFixing自动修复\n23:48 搭建整个Agent系统，只需要1个Architect用一周定框架\n25:47 Harness观念：AI是动态系统，出错要弥补系统而非简单纠错\n27:13 你的内容和产品，受众可能是Agent\nHarness时代的组织转型\n31:09 组织转型挑战：只要有人觉得“不如人做”，改造就会被拉长\n32:02 AI能力已达，CreaoAI 2026年1月用两周完成全部架构重构\n36:00 “2026年我没有写过一行代码”，架构师的价值是找出AI planning的缺陷\n38:22 产品开发超前于市场，市场尚不了解Harness Agent的工作方式\n43:05 大企业难转型的原因：合规问题，人员过多\nHarness时代人的价值\n47:47 信任从人转向AI需要guardrails，产品经理角色被拿掉，对齐成本反而更低\n52:00 交流成本＞落地成本，AI环境下复合型人才更重要\n53:21 “资深悖论”：初级工程师更适应AI，资深专家转变难度大\n01:00:30 人类未来最核心的能力和价值：定义需求，review结果\n【延伸阅读和相关术语】\n《Why Your “AI-First” Strategy Is Probably Wrong》 (https://x.com/intuitiveml/status/2043545596699750791)\n《The Self-Healing Agent Harness》 (https://x.com/intuitiveml/status/2048912026018484317)\nCI/CD（持续集成/持续部署），软件开发中的自动化流程。CI（Continuous Integration，持续集成） 指开发者频繁地将代码合并到主干，并自动运行测试，以便尽早发现集成错误。CD（Continuous Delivery/Deployment，持续部署/持续交付） 指通过自动化流水线将通过测试的代码自动发布到生产环境。\nAgent Behavior（智能体行为），指AI Agent在执行任务时的行为模式，包括它如何理解指令、调用工具、做出决策、处理错误等。\n【监制】\n泓君\n【后期】\nAmei\n【运营】\n朱婕\n【BGM】\nRadar Focus - Blue Saga\nRumors About Us - T. Morri\nEasily Served - Gerhard Feng\nPoisson d'Avril - Ludvig Moulin\n【在这里找到我们】\n公众号：硅谷101\n收听渠道：Apple Podcast｜Spotify｜小宇宙｜喜马拉雅｜蜻蜓FM｜荔枝FM｜网易云音乐｜QQ音乐\n其他平台：YouTube｜Bilibili 搜索「硅谷101播客」\n联系我们：podcast@sv101.net (mailto:podcast@sv101.net)\nSpecial Guests: Clark Gao, Peter Pang, and 程凯.",
+  "subtitle": "Harness时代，你敢让AI当家吗？",
+  "link": "https://sv101.fireside.fm/251",
+  "episode_num": "",
+  "season_num": "4",
+  "authors": [
+    "硅谷101",
+    "email",
+    "href",
+    "role"
+  ],
+  "tags": [
+    "Harness",
+    "挽具工程",
+    "AI优先",
+    "人工智能",
+    "AI",
+    "Agent",
+    "公司战略",
+    "组织效率",
+    "工程师",
+    "组织架构"
+  ],
+  "image_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/f/f0f20376-8faf-4940-b920-84af6c734e2d/cover.jpg?v=6"
+}

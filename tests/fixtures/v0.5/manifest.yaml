@@ -1,0 +1,133 @@
+scope: v0.5 RSS rich metadata only
+built_at: '2026-05-26T11:15:18Z'
+source_feeds_yaml: config/feeds.yaml
+feed_count: 7
+feeds:
+- slug: 硅谷101
+  feed_name: 硅谷101
+  rss_url: https://feeds.fireside.fm/sv101/rss
+  language: zh
+  rss_file: rss/硅谷101_feed.xml
+  episode_file: episodes/硅谷101_latest.json
+  guid: 51260de8-60ef-4b76-b3e5-2e559c4a0923
+  title: E238｜聊聊Harness时代AI-First的组织架构：从信任人到信任AI
+  pub_date: '2026-05-25T00:00:00Z'
+  audio_url: https://aphid.fireside.fm/d/1437767933/f0f20376-8faf-4940-b920-84af6c734e2d/51260de8-60ef-4b76-b3e5-2e559c4a0923.mp3
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: true
+    has_link: true
+    has_image: true
+    has_tags: true
+    has_authors: true
+    shownotes_chars: 2365
+- slug: 42章经
+  feed_name: 42章经
+  rss_url: https://feed.xyzfm.space/evgg6xle9rdc
+  language: zh
+  rss_file: rss/42章经_feed.xml
+  episode_file: episodes/42章经_latest.json
+  guid: 6a100e7da7621e15d0c88337
+  title: 一个 AI 创始人的虚荣心、装，和愚昧之巅｜对谈 invoko.ai 创始人梦琪
+  pub_date: '2026-05-23T13:30:00Z'
+  audio_url: https://dts-api.xiaoyuzhoufm.com/track/648b0b641c48983391a63f98/6a100e7da7621e15d0c88337/media.xyzcdn.net/648b0b641c48983391a63f98/lsI79O-Z19zPlvmqdBpZnEOGPk3F.m4a
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: false
+    has_link: true
+    has_image: false
+    has_tags: false
+    has_authors: false
+    shownotes_chars: 1450
+- slug: 晚点聊_latetalk
+  feed_name: 晚点聊 LateTalk
+  rss_url: https://podcast.latepost.com/rss
+  language: zh
+  rss_file: rss/晚点聊_latetalk_feed.xml
+  episode_file: episodes/晚点聊_latetalk_latest.json
+  guid: c7f4e8c0-49d8-4b44-9257-824f4e254991
+  title: '166: 许华哲再次具身创业：不想错过最大的西瓜'
+  pub_date: '2026-05-25T23:15:00Z'
+  audio_url: https://aphid.fireside.fm/d/1437767933/19a49f52-28ee-4e25-b8e9-4f0ee70917e0/c7f4e8c0-49d8-4b44-9257-824f4e254991.mp3
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: true
+    has_link: true
+    has_image: true
+    has_tags: false
+    has_authors: true
+    shownotes_chars: 1556
+- slug: what_s_next_科技早知道
+  feed_name: What's Next｜科技早知道
+  rss_url: https://feeds.fireside.fm/guiguzaozhidao/rss
+  language: zh
+  rss_file: rss/what_s_next_科技早知道_feed.xml
+  episode_file: episodes/what_s_next_科技早知道_latest.json
+  guid: 7af0955b-e3b5-4b40-9ccf-90ec061bbf52
+  title: 7000 亿美元砸向 AI：这是下一代互联网，还是泡沫重演？| S10E12
+  pub_date: '2026-05-20T09:00:00Z'
+  audio_url: https://aphid.fireside.fm/d/1437767933/4931937e-0184-4c61-a658-6b03c254754d/7af0955b-e3b5-4b40-9ccf-90ec061bbf52.mp3
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: false
+    has_link: true
+    has_image: true
+    has_tags: false
+    has_authors: true
+    shownotes_chars: 2794
+- slug: lex_fridman_podcast
+  feed_name: Lex Fridman Podcast
+  rss_url: https://lexfridman.com/feed/podcast/
+  language: en
+  rss_file: rss/lex_fridman_podcast_feed.xml
+  episode_file: episodes/lex_fridman_podcast_latest.json
+  guid: https://lexfridman.com/?p=6450
+  title: '#496 – FFmpeg: The Incredible Technology Behind Video on the Internet'
+  pub_date: '2026-05-06T22:06:47Z'
+  audio_url: https://media.blubrry.com/takeituneasy/ins.blubrry.com/takeituneasy/lex_ai_ffmpeg.mp3
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: false
+    has_link: true
+    has_image: false
+    has_tags: true
+    has_authors: false
+    shownotes_chars: 3284
+- slug: all_in_podcast
+  feed_name: All-In Podcast
+  rss_url: https://rss.libsyn.com/shows/254861/destinations/1928300.xml
+  language: en
+  rss_file: rss/all_in_podcast_feed.xml
+  episode_file: episodes/all_in_podcast_latest.json
+  guid: c3affab8-5413-46ec-8d1f-00e504c0309c
+  title: SpaceX's $2T Case, Nvidia's Shock Selloff, America Turns on AI, Trump Pulls
+    AI Order, Bond Crisis?
+  pub_date: '2026-05-22T22:46:00Z'
+  audio_url: https://dts.podtrac.com/redirect.mp3/traffic.libsyn.com/secure/allinchamathjason/ALLIN-E274_Ch.mp3?dest-id=1928300
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: false
+    has_link: true
+    has_image: true
+    has_tags: false
+    has_authors: false
+    shownotes_chars: 4516
+- slug: the_a16z_show
+  feed_name: The a16z Show
+  rss_url: https://feeds.simplecast.com/JGE3yC0V
+  language: en
+  rss_file: rss/the_a16z_show_feed.xml
+  episode_file: episodes/the_a16z_show_latest.json
+  guid: 0ca27533-0b5b-48e3-ac68-a89322634b7e
+  title: Why AI Isn’t Killing SaaS Yet
+  pub_date: '2026-05-25T10:00:00Z'
+  audio_url: https://mgln.ai/e/1344/afp-848985-injected.calisto.simplecastaudio.com/3f86df7b-51c6-4101-88a2-550dba782de8/episodes/4d27f71b-0d5c-4dc2-9cdc-ce3d422a600e/audio/128/default.mp3?aid=rss_feed&awCollectionId=3f86df7b-51c6-4101-88a2-550dba782de8&awEpisodeId=4d27f71b-0d5c-4dc2-9cdc-ce3d422a600e&feed=JGE3yC0V
+  checks:
+    shownotes_nonempty: true
+    has_subtitle: true
+    has_link: true
+    has_image: false
+    has_tags: true
+    has_authors: true
+    shownotes_chars: 1670
+errors: []

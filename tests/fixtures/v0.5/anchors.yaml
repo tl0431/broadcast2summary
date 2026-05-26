@@ -1,0 +1,125 @@
+description: v0.5 prompt/metadata anchors from real latest episodes
+feeds:
+  硅谷101:
+    feed_name: 硅谷101
+    guid: 51260de8-60ef-4b76-b3e5-2e559c4a0923
+    title: E238｜聊聊Harness时代AI-First的组织架构：从信任人到信任AI
+    subtitle: Harness时代，你敢让AI当家吗？
+    link: https://sv101.fireside.fm/251
+    image_url: https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/f/f0f20376-8faf-4940-b920-84af6c734e2d/cover.jpg?v=6
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: true
+      has_link: true
+      has_image: true
+      has_tags: true
+      has_authors: true
+      shownotes_chars: 2365
+    prompt_keywords:
+    - CreaoAI
+    - Peter Pang
+    - Harness
+  42章经:
+    feed_name: 42章经
+    guid: 6a100e7da7621e15d0c88337
+    title: 一个 AI 创始人的虚荣心、装，和愚昧之巅｜对谈 invoko.ai 创始人梦琪
+    subtitle: ''
+    link: https://www.xiaoyuzhoufm.com/episode/6a100e7da7621e15d0c88337?utm_source=rss
+    image_url: ''
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: false
+      has_link: true
+      has_image: false
+      has_tags: false
+      has_authors: false
+      shownotes_chars: 1450
+    prompt_keywords: []
+  晚点聊_latetalk:
+    feed_name: 晚点聊 LateTalk
+    guid: c7f4e8c0-49d8-4b44-9257-824f4e254991
+    title: '166: 许华哲再次具身创业：不想错过最大的西瓜'
+    subtitle: 「回到智能，进入家庭。」
+    link: https://podcast.latepost.com/166
+    image_url: https://assets.fireside.fm/file/fireside-images-2024/podcasts/images/1/19a49f52-28ee-4e25-b8e9-4f0ee70917e0/episodes/c/c7f4e8c0-49d8-4b44-9257-824f4e254991/cover.jpg?v=1
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: true
+      has_link: true
+      has_image: true
+      has_tags: false
+      has_authors: true
+      shownotes_chars: 1556
+    prompt_keywords: []
+  what_s_next_科技早知道:
+    feed_name: What's Next｜科技早知道
+    guid: 7af0955b-e3b5-4b40-9ccf-90ec061bbf52
+    title: 7000 亿美元砸向 AI：这是下一代互联网，还是泡沫重演？| S10E12
+    subtitle: ''
+    link: https://guiguzaozhidao.fireside.fm/20240425
+    image_url: https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/4/4931937e-0184-4c61-a658-6b03c254754d/cover.jpg?v=10
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: false
+      has_link: true
+      has_image: true
+      has_tags: false
+      has_authors: true
+      shownotes_chars: 2794
+    prompt_keywords: []
+  lex_fridman_podcast:
+    feed_name: Lex Fridman Podcast
+    guid: https://lexfridman.com/?p=6450
+    title: '#496 – FFmpeg: The Incredible Technology Behind Video on the Internet'
+    subtitle: ''
+    link: https://lexfridman.com/ffmpeg/?utm_source=rss&utm_medium=rss&utm_campaign=ffmpeg
+    image_url: ''
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: false
+      has_link: true
+      has_image: false
+      has_tags: true
+      has_authors: false
+      shownotes_chars: 3284
+    prompt_keywords: []
+  all_in_podcast:
+    feed_name: All-In Podcast
+    guid: c3affab8-5413-46ec-8d1f-00e504c0309c
+    title: SpaceX's $2T Case, Nvidia's Shock Selloff, America Turns on AI, Trump Pulls
+      AI Order, Bond Crisis?
+    subtitle: ''
+    link: https://allinchamathjason.libsyn.com/spacexs-2t-case-nvidias-shock-selloff-america-turns-on-ai-trump-pulls-ai-order-bond-crisis
+    image_url: https://static.libsyn.com/p/assets/c/3/2/1/c321969eb8898bf116c3140a3186d450/1_Pod_E274.png
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: false
+      has_link: true
+      has_image: true
+      has_tags: false
+      has_authors: false
+      shownotes_chars: 4516
+    prompt_keywords: []
+  the_a16z_show:
+    feed_name: The a16z Show
+    guid: 0ca27533-0b5b-48e3-ac68-a89322634b7e
+    title: Why AI Isn’t Killing SaaS Yet
+    subtitle: Originally aired on MTS segment, Monetary Matters, Jack Farley and Max
+      Wiethe speak with Ara Kharazian, Lead Economist at Ramp, about what real business
+      spending data says about AI adoption, why the “SaaSpocalypse” narrative is overblown,
+      and how companies are actually buying and deploying AI tools. They also discuss
+      Anthropic overtaking OpenAI in Ramp’s AI Index, token-based pricing, AI productivity
+      gains, and why many legacy software firms may be more resilient than people
+      expect.
+    link: https://a16z.simplecast.com/episodes/why-ai-isnt-killing-saas-yet-FHixHn5O
+    image_url: ''
+    checks:
+      shownotes_nonempty: true
+      has_subtitle: true
+      has_link: true
+      has_image: false
+      has_tags: true
+      has_authors: true
+      shownotes_chars: 1670
+    prompt_keywords:
+    - a16z

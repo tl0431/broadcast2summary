@@ -1,0 +1,2 @@
+# Full RSS snapshots are large (~25MB); regenerate locally via scripts/build_v05_fixtures.py
+rss/

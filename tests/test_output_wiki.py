@@ -1,5 +1,5 @@
 import json
-from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult
+from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult, prepare_wiki_markdown
 
 
 class FakeLark:
@@ -44,6 +44,67 @@ def test_push_summary_uses_docs_create_with_folder_token():
     assert "--markdown" in args
     md_idx = args.index("--markdown")
     assert args[md_idx + 1] == body
+
+
+_SAMPLE_MD_WITH_FM = """\
+---
+link: https://example.com/ep
+tags: [AI, startup]
+image: https://cdn/cover.jpg
+---
+
+_副标题_
+
+![封面](.assets/cover.jpg)
+
+# TL;DR
+
+内容正文。
+"""
+
+_SAMPLE_MD_NO_FM = """\
+# TL;DR
+
+内容正文。
+"""
+
+
+def test_prepare_wiki_markdown_strips_frontmatter():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="https://cdn/cover.jpg")
+    assert not result.startswith("---")
+    assert "link:" not in result
+    assert "tags:" not in result
+    assert "TL;DR" in result
+
+
+def test_prepare_wiki_markdown_replaces_local_cover_with_url():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="https://cdn/cover.jpg")
+    assert "![封面](https://cdn/cover.jpg)" in result
+    assert ".assets/" not in result
+
+
+def test_prepare_wiki_markdown_removes_cover_when_no_url():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="")
+    assert "![封面]" not in result
+    assert ".assets/" not in result
+
+
+def test_prepare_wiki_markdown_no_frontmatter_passthrough():
+    result = prepare_wiki_markdown(_SAMPLE_MD_NO_FM, image_url="")
+    assert result.strip() == _SAMPLE_MD_NO_FM.strip()
+
+
+def test_prepare_wiki_markdown_tags_at_top():
+    result = prepare_wiki_markdown(
+        _SAMPLE_MD_WITH_FM,
+        image_url="https://cdn/cover.jpg",
+        tags=("AI", "创业"),
+    )
+    lines = result.splitlines()
+    assert lines[0].startswith("**标签：**")
+    assert "AI" in lines[0]
+    assert "创业" in lines[0]
+    assert "TL;DR" in result
 
 
 def test_push_wiki_tag_soft_fails_when_capability_missing(monkeypatch, caplog):

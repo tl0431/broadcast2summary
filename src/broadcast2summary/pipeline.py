@@ -16,7 +16,7 @@ from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, M
 from .output_local import write_local_markdown, _safe_filename
 from .output_im import push_summary_to_im, push_failure_to_im
 from .download import _download_binary_to_file, DownloadError
-from .output_wiki import push_summary_to_wiki, push_wiki_tags
+from .output_wiki import push_summary_to_wiki, push_wiki_tags, prepare_wiki_markdown
 from .health_check import check_and_repair
 from .lark_client import LarkClient
 from .translate import translate_segments
@@ -242,7 +242,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 folder_token=deps.lark_folder_token,
                 wiki_node_token=target_node,
                 title=f"{ep.pub_date[:10]} {ep.title}",
-                markdown_body=local_path.read_text(encoding="utf-8"),
+                markdown_body=prepare_wiki_markdown(
+                    local_path.read_text(encoding="utf-8"),
+                    image_url=ep.image_url,
+                    tags=ep.tags,
+                ),
             )
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url
