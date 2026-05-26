@@ -49,3 +49,27 @@ def test_summarize_raises_when_all_attempts_fail(fixtures_dir):
             transcript_with_timestamps=transcript, guests_hint=None,
             transcript_full=transcript, stubs=stubs, l3_enabled=False,
         )
+
+
+def test_summarize_accepts_and_forwards_new_metadata(fixtures_dir):
+    from broadcast2summary.summarize import summarize, SummarizeStubs
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    captured: dict = {}
+
+    class CapturingStubs(SummarizeStubs):
+        def deepseek_complete(self, prompt: str, *, temperature: float) -> str:
+            captured["prompt"] = prompt
+            return super().deepseek_complete(prompt, temperature=temperature)
+
+    stubs = CapturingStubs(deepseek=[sample], claude=[sample])
+    transcript = "播客 摘要 工程化 转写 评分 输出 管线 RSS 抓取 Whisper " * 100
+    summarize(
+        show_name="X", episode_title="Y", duration_minutes=10,
+        transcript_with_timestamps=transcript,
+        guests_hint=None, transcript_full=transcript,
+        stubs=stubs, l3_enabled=False,
+        shownotes="CreaoAI", authors=("田里",),
+        link="https://x/e", subtitle="副",
+    )
+    assert "CreaoAI" in captured["prompt"]
+    assert "田里" in captured["prompt"]

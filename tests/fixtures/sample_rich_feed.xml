@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0">
+<channel>
+  <title>Test Rich Show</title>
+  <item>
+    <title>E001 The Rich Episode</title>
+    <itunes:subtitle>A subtitle here</itunes:subtitle>
+    <guid>rich-001</guid>
+    <link>https://example.com/episodes/001</link>
+    <pubDate>Mon, 26 May 2026 10:00:00 +0000</pubDate>
+    <enclosure url="https://cdn.example.com/001.mp3" length="48000000" type="audio/mpeg"/>
+    <itunes:duration>3600</itunes:duration>
+    <itunes:episode>1</itunes:episode>
+    <itunes:season>2</itunes:season>
+    <itunes:image href="https://cdn.example.com/cover.jpg"/>
+    <itunes:author>Alice, Bob</itunes:author>
+    <content:encoded><![CDATA[<p>Welcome! Today we talk with <a href="https://creao.ai">CreaoAI</a> founder Peter Pang.</p><p>Topics: AI-first, Harness.</p>]]></content:encoded>
+    <category>AI</category>
+    <category>Tech</category>
+  </item>
+</channel>
+</rss>

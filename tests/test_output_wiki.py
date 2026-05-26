@@ -1,5 +1,5 @@
 import json
-from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult
+from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult, prepare_wiki_markdown
 
 
 class FakeLark:
@@ -44,3 +44,100 @@ def test_push_summary_uses_docs_create_with_folder_token():
     assert "--markdown" in args
     md_idx = args.index("--markdown")
     assert args[md_idx + 1] == body
+
+
+_SAMPLE_MD_WITH_FM = """\
+---
+link: https://example.com/ep
+tags: [AI, startup]
+image: https://cdn/cover.jpg
+---
+
+_副标题_
+
+![封面](.assets/cover.jpg)
+
+# TL;DR
+
+内容正文。
+"""
+
+_SAMPLE_MD_NO_FM = """\
+# TL;DR
+
+内容正文。
+"""
+
+
+def test_prepare_wiki_markdown_strips_frontmatter():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="https://cdn/cover.jpg")
+    assert not result.startswith("---")
+    assert "link:" not in result
+    assert "tags:" not in result
+    assert "TL;DR" in result
+
+
+def test_prepare_wiki_markdown_replaces_local_cover_with_url():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="https://cdn/cover.jpg")
+    assert "![封面](https://cdn/cover.jpg)" in result
+    assert ".assets/" not in result
+
+
+def test_prepare_wiki_markdown_removes_cover_when_no_url():
+    result = prepare_wiki_markdown(_SAMPLE_MD_WITH_FM, image_url="")
+    assert "![封面]" not in result
+    assert ".assets/" not in result
+
+
+def test_prepare_wiki_markdown_no_frontmatter_passthrough():
+    result = prepare_wiki_markdown(_SAMPLE_MD_NO_FM, image_url="")
+    assert result.strip() == _SAMPLE_MD_NO_FM.strip()
+
+
+def test_prepare_wiki_markdown_tags_at_top():
+    result = prepare_wiki_markdown(
+        _SAMPLE_MD_WITH_FM,
+        image_url="https://cdn/cover.jpg",
+        tags=("AI", "创业"),
+    )
+    lines = result.splitlines()
+    assert lines[0].startswith("**标签：**")
+    assert "AI" in lines[0]
+    assert "创业" in lines[0]
+    assert "TL;DR" in result
+
+
+def test_push_wiki_tag_soft_fails_when_capability_missing(monkeypatch, caplog):
+    import logging
+    import broadcast2summary.output_wiki as output_wiki_mod
+    from broadcast2summary.output_wiki import push_wiki_tags
+
+    output_wiki_mod._wiki_tag_capability_cache = None
+
+    class FakeLark:
+        def run(self, args):
+            if args[:2] == ["wiki", "spaces"] and args[2] == "--help":
+                return "wiki spaces help"
+            raise AssertionError(f"unexpected lark call: {args}")
+
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.output_wiki"):
+        push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
+    assert any("capability" in r.message.lower() for r in caplog.records)
+
+
+def test_push_wiki_tag_logs_warning_on_error(monkeypatch, caplog):
+    import logging
+    from broadcast2summary.output_wiki import push_wiki_tags
+
+    monkeypatch.setattr(
+        "broadcast2summary.output_wiki._detect_wiki_tag_capability",
+        lambda lark: True,
+    )
+
+    class FakeLark:
+        def run(self, args):
+            raise RuntimeError("API down")
+
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.output_wiki"):
+        push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
+    assert any("wiki tag push failed" in r.message.lower() for r in caplog.records)

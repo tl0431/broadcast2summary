@@ -45,6 +45,19 @@ def test_download_audio_propagates_http_errors(tmp_path: Path, monkeypatch):
         download_audio("http://example.com/a.mp3", dst)
 
 
+def test_download_binary_to_file_writes_atomically(tmp_path: Path, monkeypatch):
+    audio_bytes = b"\x00" * 50_000
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=audio_bytes))
+    monkeypatch.setattr(
+        "broadcast2summary.download._client_factory",
+        lambda: httpx.Client(transport=transport),
+    )
+    from broadcast2summary.download import _download_binary_to_file
+    dst = tmp_path / "cover.jpg"
+    _download_binary_to_file("http://example.com/c.jpg", dst, min_bytes=1000)
+    assert dst.read_bytes() == audio_bytes
+
+
 def test_download_resumes_with_range_header(tmp_path: Path, monkeypatch):
     """When .part exists, send Range header and append on 206."""
     audio_bytes = b"\x49\x44\x33" + b"x" * 200_000

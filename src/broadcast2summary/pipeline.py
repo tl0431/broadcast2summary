@@ -13,9 +13,10 @@ from .transcribe import TranscribeBackend, transcribe_audio, TranscriptionResult
 from .diarize import diarize_audio, align_speakers, release_pipeline, SpeakerTurn
 from .speaker_id import apply_speaker_names
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
-from .output_local import write_local_markdown
+from .output_local import write_local_markdown, _safe_filename
 from .output_im import push_summary_to_im, push_failure_to_im
-from .output_wiki import push_summary_to_wiki
+from .download import _download_binary_to_file, DownloadError
+from .output_wiki import push_summary_to_wiki, push_wiki_tags, prepare_wiki_markdown
 from .health_check import check_and_repair
 from .lark_client import LarkClient
 from .translate import translate_segments
@@ -65,6 +66,8 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     cache_dir.mkdir(parents=True, exist_ok=True)
     turns_cache = cache_dir / "turns.json"
     transcript_cache = cache_dir / "transcript.json"
+    cover_path: Path | None = None
+    show_dir = deps.archive_root / _safe_filename(ep.feed_name)
 
     # ---- download (skip if transcript already cached) ----
     if not transcript_cache.exists():
@@ -73,6 +76,8 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             deps.download_fn(ep.audio_url, audio_path)
         except Exception as e:
             return _record_failure(deps, ep, "download", e, now, mp3_path=None)
+
+        cover_path = _download_cover(ep, show_dir)
 
         # ---- diarize (before transcribe so pyannote releases ~2GB before Whisper loads) ----
         turns: list = []
@@ -128,6 +133,9 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         turns = _load_turns(turns_cache) if turns_cache.exists() else []
         transcription = _load_transcript(transcript_cache)
 
+    if cover_path is None:
+        cover_path = _download_cover(ep, show_dir)
+
     # ---- align speakers ----
     if turns:
         aligned_segs = align_speakers(transcription.segments, turns)
@@ -152,6 +160,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             l3_enabled=deps.l3_enabled,
             deepseek=deps.deepseek, claude=deps.claude, stubs=deps.summarize_stubs,
             include_speaker_names=deps.diarization_enabled,
+            shownotes=ep.shownotes,
+            authors=ep.authors,
+            link=ep.link,
+            subtitle=ep.subtitle,
+            episode_guid=ep.guid,
         )
     except SummarizeFailure as e:
         # cache preserved — retry will skip diarize+transcribe
@@ -187,11 +200,23 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
 
     # ---- local markdown (core artifact — failure = episode failed) ----
     try:
+        cover_rel = (
+            str(cover_path.relative_to(show_dir))
+            if cover_path and cover_path.exists()
+            else None
+        )
         local_path = write_local_markdown(
             archive_root=deps.archive_root,
             show_name=ep.feed_name, episode_title=ep.title,
             pub_date=ep.pub_date, summary=summary.parsed, segments=translated_segments,
             language=effective_language,
+            subtitle=ep.subtitle,
+            link=ep.link,
+            episode_num=ep.episode_num,
+            season_num=ep.season_num,
+            tags=ep.tags,
+            cover_rel_path=cover_rel,
+            image_url=ep.image_url if not cover_rel else "",
         )
     except Exception as e:
         return _record_failure(deps, ep, "output_local", e, now, mp3_path=None)
@@ -217,10 +242,21 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 folder_token=deps.lark_folder_token,
                 wiki_node_token=target_node,
                 title=f"{ep.pub_date[:10]} {ep.title}",
-                markdown_body=local_path.read_text(encoding="utf-8"),
+                markdown_body=prepare_wiki_markdown(
+                    local_path.read_text(encoding="utf-8"),
+                    image_url=ep.image_url,
+                    tags=ep.tags,
+                ),
             )
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url
+            if wiki_token and ep.tags:
+                push_wiki_tags(
+                    lark=deps.lark,
+                    doc_token=wiki_token,
+                    tags=ep.tags,
+                    episode_guid=ep.guid,
+                )
     except Exception:
         logger.exception("wiki push failed for %s — continuing", ep.guid)
 
@@ -231,6 +267,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 lark=deps.lark, target_open_id=deps.im_target,
                 show_name=ep.feed_name, episode_title=ep.title,
                 summary=summary.parsed, wiki_doc_url=wiki_url,
+                subtitle=ep.subtitle,
             )
     except Exception:
         logger.exception("IM push failed for %s — continuing", ep.guid)
@@ -327,6 +364,23 @@ def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,
 
 def _safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in s)[:120]
+
+
+def _download_cover(ep: Episode, show_dir: Path) -> Path | None:
+    """Download episode cover if missing. Soft-fail; returns local path or None."""
+    if not ep.image_url:
+        return None
+    cover_dest = show_dir / ".assets" / f"{_safe(ep.guid)}.jpg"
+    if cover_dest.exists() and cover_dest.stat().st_size >= 1000:
+        return cover_dest
+    try:
+        _download_binary_to_file(ep.image_url, cover_dest, min_bytes=1000)
+        size_kb = cover_dest.stat().st_size // 1024
+        logger.info("cover saved %d KB for %s", size_kb, ep.guid)
+        return cover_dest
+    except (DownloadError, Exception) as e:
+        logger.warning("cover download failed for %s — %s", ep.guid, e)
+        return None
 
 
 def _assert_memory_available(required_gb: float, stage: str) -> None:

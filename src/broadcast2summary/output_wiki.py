@@ -1,7 +1,43 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import json
+import logging
+import re
 from .lark_client import LarkClient
+
+logger = logging.getLogger(__name__)
+
+_wiki_tag_capability_cache: bool | None = None
+
+
+def prepare_wiki_markdown(
+    md_text: str,
+    *,
+    image_url: str = "",
+    tags: tuple[str, ...] = (),
+) -> str:
+    """Strip YAML frontmatter and replace local cover path with HTTP URL for wiki push.
+
+    Tags are prepended as a plain-text line at the top of the body.
+    """
+    # Strip YAML frontmatter (--- ... ---)
+    if md_text.startswith("---\n"):
+        end = md_text.find("\n---\n", 4)
+        if end != -1:
+            md_text = md_text[end + 5:].lstrip("\n")
+
+    # Replace local .assets/ cover with original HTTP URL, or remove the line
+    if image_url:
+        md_text = re.sub(r"!\[封面\]\([^)]+\)", f"![封面]({image_url})", md_text)
+    else:
+        md_text = re.sub(r"!\[封面\]\([^)]+\)\n?", "", md_text)
+
+    # Prepend tags line at the top
+    if tags:
+        tag_line = "**标签：** " + " · ".join(tags)
+        md_text = tag_line + "\n\n" + md_text
+
+    return md_text
 
 
 @dataclass(frozen=True)
@@ -45,3 +81,36 @@ def push_summary_to_wiki(
         doc_token=data.get("doc_id", ""),
         url=data.get("doc_url", ""),
     )
+
+
+def _detect_wiki_tag_capability(lark) -> bool:
+    """Probe lark-cli once per process for wiki tag support."""
+    global _wiki_tag_capability_cache
+    if _wiki_tag_capability_cache is not None:
+        return _wiki_tag_capability_cache
+    try:
+        out = lark.run(["wiki", "spaces", "--help"])
+        _wiki_tag_capability_cache = "tag" in out.lower()
+    except Exception:
+        _wiki_tag_capability_cache = False
+    if not _wiki_tag_capability_cache:
+        logger.info("lark-cli wiki tag capability not detected — skipping wiki tags")
+    return _wiki_tag_capability_cache
+
+
+def push_wiki_tags(
+    *, lark, doc_token: str, tags: tuple[str, ...], episode_guid: str = "",
+) -> None:
+    if not tags or not doc_token:
+        return
+    if not _detect_wiki_tag_capability(lark):
+        return
+    try:
+        lark.run([
+            "wiki", "spaces", "+set-tags",
+            "--doc-token", doc_token,
+            "--tags", ",".join(tags),
+        ])
+    except Exception as e:
+        who = episode_guid or doc_token
+        logger.warning("wiki tag push failed for %s — %s", who, e)

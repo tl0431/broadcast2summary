@@ -69,3 +69,31 @@ def download_audio(url: str, dst: Path) -> None:
                 time.sleep(2 ** attempt)
 
     raise DownloadError(str(last_err)) from last_err
+
+
+def _download_binary_to_file(url: str, dst: Path, *, min_bytes: int = 1) -> None:
+    """Stream a binary URL to disk with retry + .part atomic rename."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_suffix(dst.suffix + ".part")
+    last_err: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with _client_factory() as client:
+                with client.stream("GET", url) as resp:
+                    if resp.status_code != 200:
+                        raise DownloadError(f"HTTP {resp.status_code} for {url}")
+                    with tmp.open("wb") as f:
+                        for chunk in resp.iter_bytes(chunk_size=64 * 1024):
+                            f.write(chunk)
+            size = tmp.stat().st_size
+            if size < min_bytes:
+                tmp.unlink(missing_ok=True)
+                raise DownloadError(f"too small: {size} bytes")
+            tmp.replace(dst)
+            return
+        except (httpx.HTTPError, DownloadError) as e:
+            last_err = e
+            tmp.unlink(missing_ok=True)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** attempt)
+    raise DownloadError(str(last_err)) from last_err

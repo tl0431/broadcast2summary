@@ -18,6 +18,29 @@ def _fmt_hms(seconds: float) -> str:
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
 
+def _frontmatter(
+    *,
+    link: str,
+    episode_num: str,
+    season_num: str,
+    tags: tuple[str, ...],
+    image: str = "",
+) -> str:
+    lines = ["---"]
+    if link:
+        lines.append(f"link: {link}")
+    if episode_num:
+        lines.append(f"episode: {episode_num}")
+    if season_num:
+        lines.append(f"season: {season_num}")
+    if tags:
+        lines.append(f"tags: [{', '.join(tags)}]")
+    if image:
+        lines.append(f"image: {image}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def write_local_markdown(
     *,
     archive_root: Path,
@@ -27,6 +50,13 @@ def write_local_markdown(
     summary: dict,
     segments,
     language: str = "zh",
+    subtitle: str = "",
+    link: str = "",
+    episode_num: str = "",
+    season_num: str = "",
+    tags: tuple[str, ...] = (),
+    cover_rel_path: str | None = None,
+    image_url: str = "",
 ) -> Path:
     show_dir = archive_root / _safe_filename(show_name)
     show_dir.mkdir(parents=True, exist_ok=True)
@@ -34,17 +64,61 @@ def write_local_markdown(
     filename = f"{date_part}-{_safe_filename(episode_title)}.md"
     out = show_dir / filename
     out.write_text(
-        render_markdown(show_name, episode_title, pub_date, summary, segments, language=language),
+        render_markdown(
+            show_name,
+            episode_title,
+            pub_date,
+            summary,
+            segments,
+            language=language,
+            subtitle=subtitle,
+            link=link,
+            episode_num=episode_num,
+            season_num=season_num,
+            tags=tags,
+            cover_rel_path=cover_rel_path,
+            image_url=image_url,
+        ),
         encoding="utf-8",
     )
     return out
 
 
-def render_markdown(show_name: str, episode_title: str, pub_date: str,
-                    summary: dict, segments, *, language: str = "zh") -> str:
+def render_markdown(
+    show_name: str,
+    episode_title: str,
+    pub_date: str,
+    summary: dict,
+    segments,
+    *,
+    language: str = "zh",
+    subtitle: str = "",
+    link: str = "",
+    episode_num: str = "",
+    season_num: str = "",
+    tags: tuple[str, ...] = (),
+    cover_rel_path: str | None = None,
+    image_url: str = "",
+) -> str:
     lines: list[str] = []
+    image_fm = cover_rel_path or image_url
+    if any([link, episode_num, season_num, tags, image_fm]):
+        lines.append(_frontmatter(
+            link=link,
+            episode_num=episode_num,
+            season_num=season_num,
+            tags=tags,
+            image=image_fm or "",
+        ).rstrip("\n"))
+        lines.append("")
     lines.append(f"# {episode_title}")
     lines.append("")
+    if subtitle:
+        lines.append(f"_{subtitle}_")
+        lines.append("")
+    if cover_rel_path:
+        lines.append(f"![封面]({cover_rel_path})")
+        lines.append("")
     lines.append(f"- **节目**: {show_name}")
     lines.append(f"- **发布**: {pub_date}")
     if summary.get("guests"):

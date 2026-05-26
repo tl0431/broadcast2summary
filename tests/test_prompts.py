@@ -74,6 +74,22 @@ def test_render_summary_prompt_includes_asr_correction_guidance():
     assert "CAR-T" in p or "术语" in p
 
 
+def test_render_summary_prompt_includes_english_correction_guidance():
+    """Prompt must instruct LLM to fix high-confidence English ASR errors
+    (case, acronym format, proper-noun spelling consistency) using
+    content+context evidence (title / TL;DR / key_points / resources /
+    in-transcript frequency). 硅谷101 E238 leaked 'Coreo' vs 'Crayo',
+    'Ai', 'Smb', 'CICD' through the existing prompt."""
+    from broadcast2summary.prompts import render_summary_prompt
+    p = render_summary_prompt(
+        show_name="X", episode_title="Y", duration_minutes=10,
+        transcript_with_timestamps="[00:00:00] hi.\n", guests_hint=None,
+    )
+    assert "大小写" in p, "prompt must call out case normalization for English acronyms"
+    assert "拼写" in p or "拼法" in p, "prompt must call out proper-noun spelling consistency"
+    assert "高频" in p or "出现次数" in p, "prompt must instruct using frequency as tiebreaker"
+
+
 # ---------------------------------------------------------------------------
 # Bug fixes: chunk prompt + speaker schema bias
 # ---------------------------------------------------------------------------
@@ -110,3 +126,60 @@ def test_speaker_schema_example_not_biased_to_null():
     assert '"confidence": 0.0' not in p, (
         "SPEAKER_01 example with confidence=0.0 biases model to always return null for SPEAKER_01"
     )
+
+
+def test_truncate_shownotes_caps_at_1500_chars():
+    from broadcast2summary.prompts import _truncate_shownotes
+    short = "x" * 1000
+    assert _truncate_shownotes(short) == short
+    long = "x" * 3000
+    out = _truncate_shownotes(long)
+    assert len(out) == 1500
+    assert out.endswith("…")
+
+
+def test_truncate_shownotes_logs_guid(caplog):
+    import logging
+    from broadcast2summary.prompts import _truncate_shownotes
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.prompts"):
+        _truncate_shownotes("x" * 3000, episode_guid="ep-guid-1")
+    assert any("ep-guid-1" in r.message for r in caplog.records)
+
+
+def test_render_chunk_summary_prompt_includes_shownotes():
+    from broadcast2summary.prompts import render_chunk_summary_prompt
+    p = render_chunk_summary_prompt(
+        show_name="X", chunk_idx=1, total_chunks=2, chunk="[00:00:00] hi",
+        shownotes="CreaoAI anchor",
+    )
+    assert "CreaoAI anchor" in p
+    assert p.index("CreaoAI anchor") < p.index("[00:00:00]")
+
+
+def test_render_summary_prompt_logs_total_size(caplog):
+    import logging
+    from broadcast2summary.prompts import render_summary_prompt
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.prompts"):
+        render_summary_prompt(
+            show_name="X", episode_title="Y", duration_minutes=10,
+            transcript_with_timestamps="[00:00:00] hi.\n",
+            guests_hint=None,
+        )
+    assert any("prompt size" in r.message for r in caplog.records)
+
+
+def test_render_summary_prompt_injects_shownotes_block():
+    from broadcast2summary.prompts import render_summary_prompt
+    p = render_summary_prompt(
+        show_name="X", episode_title="Y", duration_minutes=10,
+        transcript_with_timestamps="[00:00:00] hi.\n",
+        guests_hint=None,
+        shownotes="CreaoAI 创始人 Peter Pang", authors=("田里",),
+        link="https://example.com/ep001", subtitle="副标题示例",
+    )
+    idx_show = p.find("CreaoAI 创始人 Peter Pang")
+    idx_trans = p.find("[00:00:00]")
+    assert 0 < idx_show < idx_trans, "shownotes must precede transcript"
+    assert "田里" in p
+    assert "https://example.com/ep001" in p
+    assert "副标题示例" in p

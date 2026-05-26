@@ -1,0 +1,10 @@
+# Isolated Feishu targets for branch e2e (copy to config/e2e.yaml, never commit secrets).
+#
+# Create a dedicated wiki node/page under your knowledge base for e2e runs.
+# All test docs are created as children of this node — not under production show nodes.
+#
+# wiki_node_token: wikcn_replace_with_e2e_node_token
+# im_target_open_id: ou_optional_override   # default: LARK_IM_TARGET_OPEN_ID from env
+
+wiki_node_token: null
+im_target_open_id: null
