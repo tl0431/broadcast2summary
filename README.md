@@ -169,6 +169,26 @@ The launchd job runs under `caffeinate -dims` to prevent macOS from sleeping dur
 
 Logs: `~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 
+### Low-IO mode (optional)
+
+The default plist does not throttle priority — broadcast2summary gets normal CPU/IO scheduling, typically 30–50 minutes per episode.
+
+If you want it to run quietly in the background without competing with foreground work, add these keys to the plist:
+
+```xml
+<key>LowPriorityIO</key><true/>
+<key>Nice</key><integer>10</integer>
+```
+
+⚠️ **Trade-off**: under CPU contention, per-episode time can stretch from 30 minutes to several hours (diarization is particularly sensitive). Enable only when other high-priority workloads are competing for CPU.
+
+Enable:
+```bash
+# After editing the plist:
+launchctl unload ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
+launchctl load   ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
+```
+
 ---
 
 ## Architecture

@@ -170,6 +170,26 @@ launchd 任务通过 `caffeinate -dims` 运行，防止 macOS 在长时间 diari
 
 日志：`~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 
+### 低 IO 模式（可选）
+
+默认 plist 不做优先级降档，让 broadcast2summary 获得正常 CPU/IO 调度，单集处理约 30–50 分钟。
+
+如果希望它在后台"安静地跑"、不与你的前台工作抢资源，可以编辑 plist 加上：
+
+```xml
+<key>LowPriorityIO</key><true/>
+<key>Nice</key><integer>10</integer>
+```
+
+⚠️ **代价**：CPU 紧张时单集处理时间可能从 30 分钟拉长到数小时（diarize 阶段尤其敏感）。仅在你确认机器有其它高优进程长时间占用时启用。
+
+启用：
+```bash
+# 编辑 plist 加上面两个 key 后
+launchctl unload ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
+launchctl load   ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
+```
+
 ---
 
 ## 架构
