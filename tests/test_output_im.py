@@ -1,4 +1,4 @@
-from broadcast2summary.output_im import push_summary_to_im
+from broadcast2summary.output_im import push_summary_to_im, _build_text
 
 
 class FakeLark:
@@ -38,6 +38,16 @@ def test_push_summary_builds_concise_card_with_link():
     assert "要点 A" in text and "要点 B" in text and "要点 C" in text
     assert "要点 D" not in text
     assert "https://lark.feishu.cn/doc/abc" in text
+
+
+def test_push_summary_to_im_includes_subtitle():
+    text = _build_text(
+        show_name="X", episode_title="T",
+        summary={"tldr": "core", "key_points": []},
+        wiki_doc_url=None,
+        subtitle="副标题示例",
+    )
+    assert "副标题示例" in text
 
 
 def test_push_summary_skips_when_no_target():

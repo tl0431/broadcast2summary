@@ -1,7 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import json
+import logging
 from .lark_client import LarkClient
+
+logger = logging.getLogger(__name__)
+
+_wiki_tag_capability_cache: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -45,3 +50,33 @@ def push_summary_to_wiki(
         doc_token=data.get("doc_id", ""),
         url=data.get("doc_url", ""),
     )
+
+
+def _detect_wiki_tag_capability(lark) -> bool:
+    """Probe lark-cli once per process for wiki tag support."""
+    global _wiki_tag_capability_cache
+    if _wiki_tag_capability_cache is not None:
+        return _wiki_tag_capability_cache
+    try:
+        out = lark.run(["wiki", "spaces", "--help"])
+        _wiki_tag_capability_cache = "tag" in out.lower()
+    except Exception:
+        _wiki_tag_capability_cache = False
+    if not _wiki_tag_capability_cache:
+        logger.info("lark-cli wiki tag capability not detected — skipping wiki tags")
+    return _wiki_tag_capability_cache
+
+
+def push_wiki_tags(*, lark, doc_token: str, tags: tuple[str, ...]) -> None:
+    if not tags or not doc_token:
+        return
+    if not _detect_wiki_tag_capability(lark):
+        return
+    try:
+        lark.run([
+            "wiki", "spaces", "+set-tags",
+            "--doc-token", doc_token,
+            "--tags", ",".join(tags),
+        ])
+    except Exception as e:
+        logger.warning("wiki tag push failed for %s — %s", doc_token, e)

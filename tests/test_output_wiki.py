@@ -44,3 +44,39 @@ def test_push_summary_uses_docs_create_with_folder_token():
     assert "--markdown" in args
     md_idx = args.index("--markdown")
     assert args[md_idx + 1] == body
+
+
+def test_push_wiki_tag_soft_fails_when_capability_missing(monkeypatch, caplog):
+    import logging
+    import broadcast2summary.output_wiki as output_wiki_mod
+    from broadcast2summary.output_wiki import push_wiki_tags
+
+    output_wiki_mod._wiki_tag_capability_cache = None
+
+    class FakeLark:
+        def run(self, args):
+            if args[:2] == ["wiki", "spaces"] and args[2] == "--help":
+                return "wiki spaces help"
+            raise AssertionError(f"unexpected lark call: {args}")
+
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.output_wiki"):
+        push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
+    assert any("capability" in r.message.lower() for r in caplog.records)
+
+
+def test_push_wiki_tag_logs_warning_on_error(monkeypatch, caplog):
+    import logging
+    from broadcast2summary.output_wiki import push_wiki_tags
+
+    monkeypatch.setattr(
+        "broadcast2summary.output_wiki._detect_wiki_tag_capability",
+        lambda lark: True,
+    )
+
+    class FakeLark:
+        def run(self, args):
+            raise RuntimeError("API down")
+
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.output_wiki"):
+        push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
+    assert any("wiki tag push failed" in r.message.lower() for r in caplog.records)

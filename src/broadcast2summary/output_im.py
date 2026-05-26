@@ -10,10 +10,11 @@ def push_summary_to_im(
     episode_title: str,
     summary: dict,
     wiki_doc_url: str | None,
+    subtitle: str = "",
 ) -> None:
     if not target_open_id:
         return
-    text = _build_text(show_name, episode_title, summary, wiki_doc_url)
+    text = _build_text(show_name, episode_title, summary, wiki_doc_url, subtitle=subtitle)
     lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
 
 
@@ -38,10 +39,18 @@ def push_failure_to_im(
     lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
 
 
-def _build_text(show_name: str, episode_title: str, summary: dict,
-                wiki_doc_url: str | None) -> str:
+def _build_text(
+    show_name: str,
+    episode_title: str,
+    summary: dict,
+    wiki_doc_url: str | None,
+    *,
+    subtitle: str = "",
+) -> str:
     parts: list[str] = []
     parts.append(f"📻 {show_name} · {episode_title}")
+    if subtitle:
+        parts.append(f"_{subtitle}_")
     parts.append("")
     parts.append(summary.get("tldr", ""))
     points = summary.get("key_points", [])[:3]

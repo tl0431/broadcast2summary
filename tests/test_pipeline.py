@@ -834,3 +834,184 @@ def test_pipeline_logs_episode_start_and_stages(tmp_path: Path, fixtures_dir, ca
         f"must log transcribe stage, got: {messages}"
     assert any("summar" in m.lower() for m in messages), \
         f"must log summarize stage, got: {messages}"
+
+
+def _long_transcript_path(tmp_path: Path) -> Path:
+    segments = [
+        {
+            "start": 0.0, "end": 5.2,
+            "text": "大家好，欢迎收听本期节目。今天我们讨论播客摘要工程化与 RSS 抓取。",
+        },
+    ]
+    for i in range(100):
+        segments.append({
+            "start": 90.0 + i * 10,
+            "end": 100.0 + i * 10,
+            "text": f"第{i+1}段：播客摘要系统涵盖转写、评分、输出与归档等多个环节。",
+        })
+    path = tmp_path / "long_transcript.json"
+    path.write_text(json.dumps({"language": "zh", "segments": segments}), encoding="utf-8")
+    return path
+
+
+def test_cover_download_failure_does_not_fail_episode(tmp_path, fixtures_dir, caplog):
+    import logging
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(_long_transcript_path(tmp_path)),
+        summarize_stubs=SummarizeStubs(deepseek=[sample, sample], claude=[sample]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None, lark_folder_token=None, wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+    )
+    ep = Episode(
+        guid="cov-001", title="T", pub_date="2026-05-26T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=10,
+        image_url="https://nonexistent.invalid/cover.jpg",
+        feed_name="F",
+    )
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.pipeline"):
+        result = process_episode(ep, deps=deps)
+    assert result.success
+    assert any("cover" in r.message.lower() for r in caplog.records)
+
+
+def test_pipeline_passes_shownotes_to_summarize(tmp_path, fixtures_dir, monkeypatch):
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+    import broadcast2summary.pipeline as pipeline_mod
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    captured: dict = {}
+    orig_summarize = pipeline_mod.summarize
+
+    def spy(**kw):
+        captured.update(kw)
+        return orig_summarize(**kw)
+
+    monkeypatch.setattr(pipeline_mod, "summarize", spy)
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(_long_transcript_path(tmp_path)),
+        summarize_stubs=SummarizeStubs(deepseek=[sample, sample], claude=[sample]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None, lark_folder_token=None, wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+    )
+    ep = Episode(
+        guid="p-001", title="T", pub_date="2026-05-26T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=10,
+        shownotes="CreaoAI 创始人 Peter Pang",
+        authors=("田里",), link="https://x/e", subtitle="副",
+        feed_name="F",
+    )
+    process_episode(ep, deps=deps)
+    assert captured.get("shownotes") == "CreaoAI 创始人 Peter Pang"
+    assert captured.get("authors") == ("田里",)
+    assert captured.get("link") == "https://x/e"
+    assert captured.get("subtitle") == "副"
+
+
+def test_pipeline_writes_frontmatter_and_subtitle_in_markdown(tmp_path, fixtures_dir):
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(_long_transcript_path(tmp_path)),
+        summarize_stubs=SummarizeStubs(deepseek=[sample, sample], claude=[sample]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None, lark_folder_token=None, wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+    )
+    ep = Episode(
+        guid="md-001", title="T", pub_date="2026-05-26T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=10,
+        subtitle="副标题示例", link="https://x/ep",
+        episode_num="1", season_num="2",
+        tags=("AI", "Tech"), feed_name="F",
+    )
+    r = process_episode(ep, deps=deps)
+    assert r.success
+    md = r.local_path.read_text(encoding="utf-8")
+    assert md.startswith("---\n")
+    assert "tags: [AI, Tech]" in md
+    assert "副标题示例" in md
+    assert "link: https://x/ep" in md
+
+
+def test_pipeline_calls_push_wiki_tags_when_wiki_push_succeeds(tmp_path, fixtures_dir, monkeypatch):
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+    from broadcast2summary.output_wiki import WikiResult
+    import broadcast2summary.pipeline as pipeline_mod
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+    captured: list = []
+
+    def fake_push_wiki(*, lark, folder_token, title, markdown_body, wiki_node_token=None):
+        return WikiResult(doc_token="dt", url="https://wiki/x")
+
+    def fake_push_tags(*, lark, doc_token, tags):
+        captured.append((doc_token, tags))
+
+    monkeypatch.setattr(pipeline_mod, "push_summary_to_wiki", fake_push_wiki)
+    monkeypatch.setattr(pipeline_mod, "push_wiki_tags", fake_push_tags)
+
+    class FakeLark:
+        pass
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(_long_transcript_path(tmp_path)),
+        summarize_stubs=SummarizeStubs(deepseek=[sample, sample], claude=[sample]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None, lark_folder_token="ft", wiki_root="wr",
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        lark=FakeLark(),
+    )
+    ep = Episode(
+        guid="wt-001", title="T", pub_date="2026-05-26T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=10,
+        wiki_node_token="wnt", tags=("AI", "Tech"), feed_name="F",
+    )
+    process_episode(ep, deps=deps)
+    assert captured == [("dt", ("AI", "Tech"))]

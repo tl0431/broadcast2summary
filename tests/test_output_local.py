@@ -1,9 +1,37 @@
 from pathlib import Path
-from broadcast2summary.output_local import write_local_markdown
+from broadcast2summary.output_local import write_local_markdown, render_markdown
 from broadcast2summary.transcribe import Segment
 
 
-def test_writes_markdown_with_safe_filename(tmp_path: Path):
+def test_render_markdown_includes_frontmatter_subtitle_cover():
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    md = render_markdown(
+        show_name="X", episode_title="T", pub_date="2026-05-26T00:00:00Z",
+        summary=summary, segments=[],
+        language="zh",
+        subtitle="副标题",
+        link="https://x/e",
+        episode_num="1", season_num="2",
+        tags=("AI", "Tech"),
+        cover_rel_path=".assets/cover.jpg",
+    )
+    assert md.startswith("---\n")
+    assert "tags: [AI, Tech]" in md
+    assert "link: https://x/e" in md
+    assert "episode: 1" in md
+    assert "season: 2" in md
+    assert "副标题" in md
+    assert "![封面](.assets/cover.jpg)" in md
+
+
+def test_writes_markdown_with_safe_filename(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "broadcast2summary.output_local.repunctuate_block",
+        lambda texts, lang: " ".join(t.strip() for t in texts),
+    )
     summary = {
         "tldr": "TLDR 内容。",
         "key_points": ["要点 1", "要点 2"],

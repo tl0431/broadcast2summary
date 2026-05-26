@@ -176,9 +176,13 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
         l3_enabled=False,
         lark=FakeLark(),
     )
-    ep = Episode(guid="g1", title="工程化", pub_date="2026-05-12T10:00:00Z",
-                 audio_url="https://x/a.mp3", duration_seconds=3600,
-                 feed_name="商业 wanderer", wiki_node_token="QbrkwfBSTiA76okUQX1cr4wfnwh")
+    ep = Episode(
+        guid="g1", title="工程化", pub_date="2026-05-12T10:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=3600,
+        feed_name="商业 wanderer", wiki_node_token="QbrkwfBSTiA76okUQX1cr4wfnwh",
+        subtitle="副标题 e2e", link="https://example.com/ep",
+        tags=("AI",), shownotes="CreaoAI 锚定测试",
+    )
     result = process_episode(ep, deps=deps)
     assert result.success is True
 
@@ -188,6 +192,9 @@ def test_e2e_pipeline_with_stubs(tmp_path, fixtures_dir):
     assert len(md_files) == 1
     text = md_files[0].read_text(encoding="utf-8")
     assert "工程化" in text and "TL;DR" in text
+    assert "副标题 e2e" in text
+    assert "tags: [AI]" in text
+    assert "link: https://example.com/ep" in text
 
     # 2. wiki + 3. IM both called
     lark_calls = deps.lark.calls

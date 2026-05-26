@@ -67,7 +67,17 @@ def summarize(
     claude: LLMClient | None = None,
     stubs: SummarizeStubs | None = None,
     include_speaker_names: bool = True,
+    shownotes: str = "",
+    authors: tuple[str, ...] = (),
+    link: str = "",
+    subtitle: str = "",
 ) -> Summary:
+    meta = dict(
+        shownotes=shownotes,
+        authors=authors,
+        link=link,
+        subtitle=subtitle,
+    )
     if len(transcript_with_timestamps) > _MAPREDUCE_THRESHOLD:
         logger.info(
             "transcript %d chars > threshold %d — using map-reduce",
@@ -84,6 +94,7 @@ def summarize(
             claude=claude,
             stubs=stubs,
             include_speaker_names=include_speaker_names,
+            **meta,
         )
 
     prompt = render_summary_prompt(
@@ -93,6 +104,7 @@ def summarize(
         transcript_with_timestamps=transcript_with_timestamps,
         guests_hint=guests_hint,
         include_speaker_names=include_speaker_names,
+        **meta,
     )
 
     # ---- attempt 1: DeepSeek @ 0.3 ----
@@ -128,6 +140,10 @@ def _summarize_mapreduce(
     claude: LLMClient | None,
     stubs: SummarizeStubs | None,
     include_speaker_names: bool,
+    shownotes: str = "",
+    authors: tuple[str, ...] = (),
+    link: str = "",
+    subtitle: str = "",
 ) -> Summary:
     chunks = _split_chunks(transcript_with_timestamps, _CHUNK_SIZE)
     total = len(chunks)
@@ -137,7 +153,11 @@ def _summarize_mapreduce(
     mini_summaries: list[str] = []
     for idx, chunk in enumerate(chunks, start=1):
         prompt = render_chunk_summary_prompt(
-            show_name=show_name, chunk_idx=idx, total_chunks=total, chunk=chunk
+            show_name=show_name,
+            chunk_idx=idx,
+            total_chunks=total,
+            chunk=chunk,
+            shownotes=shownotes,
         )
         mini = _call(deepseek, stubs, which="deepseek", prompt=prompt,
                      temperature=0.3, json_mode=False)
@@ -152,6 +172,10 @@ def _summarize_mapreduce(
         total_chunks=total,
         mini_summaries="\n\n".join(mini_summaries),
         include_speaker_names=include_speaker_names,
+        shownotes=shownotes,
+        authors=authors,
+        link=link,
+        subtitle=subtitle,
     )
 
     raw = _call(deepseek, stubs, which="deepseek", prompt=synthesis_prompt, temperature=0.3)
