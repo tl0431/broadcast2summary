@@ -1037,7 +1037,7 @@ def test_pipeline_calls_push_wiki_tags_when_wiki_push_succeeds(tmp_path, fixture
     def fake_push_wiki(*, lark, folder_token, title, markdown_body, wiki_node_token=None):
         return WikiResult(doc_token="dt", url="https://wiki/x")
 
-    def fake_push_tags(*, lark, doc_token, tags):
+    def fake_push_tags(*, lark, doc_token, tags, episode_guid=""):
         captured.append((doc_token, tags))
 
     monkeypatch.setattr(pipeline_mod, "push_summary_to_wiki", fake_push_wiki)
