@@ -1,31 +1,28 @@
 #!/usr/bin/env python
 """Full e2e run on two real episodes (zh + en) with memory monitoring.
 
+Uses isolated layout under ~/Knowledge/broadcast/e2e/legacy-zh-en/ — not production.
+
 Usage:
   source ~/.bashrc_claude && .venv/bin/python scripts/e2e_real_run.py
+  .venv/bin/python scripts/e2e_real_run.py --label legacy-zh-en
 """
 from __future__ import annotations
 import os, sys, time, shutil, threading
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
-# Run from project root
 PROJECT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT / "src"))
 os.chdir(PROJECT)
 
 import psutil
 
-# ── Config ────────────────────────────────────────────────────────────────────
 ZH_MP3     = Path("/Users/TL_1/Knowledge/broadcast/backups/whats-next-zh-43min.mp3")
-STATE_DIR  = Path("/Users/TL_1/Knowledge/broadcast/state")
-ARCHIVE    = Path("/Users/TL_1/Knowledge/broadcast/archive")
-LOG_DIR    = Path("/Users/TL_1/Knowledge/broadcast/logs")
 EN_URL     = "https://podcasts.apple.com/cn/podcast/jeopardize-endanger-compromise-oh-my/id751574016?i=1000768077428"
+DEFAULT_LABEL = "legacy-zh-en"
 
-
-# ── Memory monitor ────────────────────────────────────────────────────────────
-_mem_log: list[tuple[float, float, float]] = []   # (elapsed, used_GB, avail_GB)
+_mem_log: list[tuple[float, float, float]] = []
 _stop_mon = threading.Event()
 
 def _monitor(start: float):
@@ -44,28 +41,34 @@ def _print_mem_summary(label: str, t0: float, t1: float):
           f"  elapsed {t1-t0:.0f}s")
 
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
-def _build():
+def _build(label: str | None):
+    from broadcast2summary.config import load_config
+    from broadcast2summary.e2e_layout import config_for_e2e, resolve_e2e_layout
+    from broadcast2summary.runner import _build_deps, _feeds_path
     from broadcast2summary.state import State
-    from broadcast2summary.pipeline import PipelineDeps
     from broadcast2summary.transcribe import WhisperCppBackend
-    from broadcast2summary.summarize import DeepSeekClient, ClaudeClient
+    from broadcast2summary.summarize import DeepSeekClient
     from broadcast2summary.download import download_audio
+    from broadcast2summary.pipeline import PipelineDeps
 
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    ARCHIVE.mkdir(parents=True, exist_ok=True)
+    layout = resolve_e2e_layout(label=label or DEFAULT_LABEL)
+    layout.ensure_dirs()
+    print(f"e2e layout: {layout.root}")
 
-    state = State(STATE_DIR / "e2e-real.db")
+    cfg = config_for_e2e(load_config(_feeds_path()), layout)
+    state = State(layout.state_dir / "processed.db")
     state.init_schema()
 
+    deps = _build_deps(cfg, state, layout.state_dir, cfg.paths, cheap=False, lark_enabled=False)
+    # Legacy script always uses whisper_cpp directly (override backend choice)
     return PipelineDeps(
-        state=state,
+        state=deps.state,
         transcribe_backend=WhisperCppBackend(
             cheap=False, language_hint=None, convert_traditional=True
         ),
-        archive_root=ARCHIVE,
-        audio_dir=STATE_DIR / "audio",
-        failed_dir=STATE_DIR / "failed",
+        archive_root=deps.archive_root,
+        audio_dir=deps.audio_dir,
+        failed_dir=deps.failed_dir,
         im_target=None,
         lark_folder_token=None,
         wiki_root=None,
@@ -75,10 +78,9 @@ def _build():
         diarization_enabled=True,
         deepseek=DeepSeekClient(api_key=os.environ["DEEPSEEK_API_KEY"]),
         claude=None,
-    )
+    ), layout
 
 
-# ── Episode runners ───────────────────────────────────────────────────────────
 def run_zh(deps):
     from broadcast2summary.pipeline import process_episode
     from broadcast2summary.rss import Episode
@@ -122,8 +124,12 @@ def run_en(deps):
     return process_episode(ep, deps=deps)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--label", default=None, help="E2e subdirectory label")
+    args = parser.parse_args()
+
     start = time.time()
     mon = threading.Thread(target=_monitor, args=(start,), daemon=True)
     mon.start()
@@ -132,9 +138,8 @@ def main():
     print(f"  broadcast2summary  FULL E2E  {datetime.now():%Y-%m-%d %H:%M}")
     print(f"{'='*60}\n")
 
-    deps = _build()
+    deps, layout = _build(args.label)
 
-    # ── Episode 1: Chinese ───────────────────────────────────────────────────
     print("▶ [1/2] Chinese episode (43 min — What's Next S10E11)")
     t_zh0 = time.time() - start
     result_zh = run_zh(deps)
@@ -143,7 +148,6 @@ def main():
     print(f"  {status_zh}  →  {result_zh.local_path}")
     _print_mem_summary("memory", t_zh0, t_zh1)
 
-    # ── Episode 2: English ───────────────────────────────────────────────────
     print("\n▶ [2/2] English episode (Apple Podcasts)")
     t_en0 = time.time() - start
     result_en = run_en(deps)
@@ -152,12 +156,12 @@ def main():
     print(f"  {status_en}  →  {result_en.local_path}")
     _print_mem_summary("memory", t_en0, t_en1)
 
-    # ── Summary ──────────────────────────────────────────────────────────────
     _stop_mon.set()
     total = time.time() - start
     peak_overall = max(u for _, u, _ in _mem_log) if _mem_log else 0
     min_overall  = min(a for _, _, a in _mem_log) if _mem_log else 0
     print(f"\n{'='*60}")
+    print(f"  layout: {layout.root}")
     print(f"  Total elapsed: {total/60:.1f} min")
     print(f"  Peak memory:   {peak_overall:.1f}GB used / {min_overall:.1f}GB avail")
     print(f"  ZH: {status_zh}")
@@ -166,13 +170,11 @@ def main():
 
     if result_zh.local_path and result_zh.local_path.exists():
         print("── ZH transcript (first 2000 chars) ──")
-        txt = result_zh.local_path.read_text(encoding="utf-8")
-        print(txt[:2000])
+        print(result_zh.local_path.read_text(encoding="utf-8")[:2000])
 
     if result_en.local_path and result_en.local_path.exists():
         print("\n── EN transcript (first 2000 chars) ──")
-        txt = result_en.local_path.read_text(encoding="utf-8")
-        print(txt[:2000])
+        print(result_en.local_path.read_text(encoding="utf-8")[:2000])
 
 
 if __name__ == "__main__":

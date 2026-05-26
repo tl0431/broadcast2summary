@@ -33,6 +33,10 @@ venv/
 config/feeds.yaml
 !config/feeds.yaml.example
 
+# E2e Lark targets (wiki node token for isolated Feishu testing)
+config/e2e.yaml
+!config/e2e.yaml.example
+
 # Generated docs (keep source .md)
 docs/superpowers/specs/*.html
 docs/superpowers/plans/*.html
