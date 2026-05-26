@@ -77,15 +77,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         except Exception as e:
             return _record_failure(deps, ep, "download", e, now, mp3_path=None)
 
-        if ep.image_url:
-            cover_dest = show_dir / ".assets" / f"{_safe(ep.guid)}.jpg"
-            try:
-                _download_binary_to_file(ep.image_url, cover_dest, min_bytes=1000)
-                size_kb = cover_dest.stat().st_size // 1024
-                logger.info("cover saved %d KB for %s", size_kb, ep.guid)
-                cover_path = cover_dest
-            except (DownloadError, Exception) as e:
-                logger.warning("cover download failed for %s — %s", ep.guid, e)
+        cover_path = _download_cover(ep, show_dir)
 
         # ---- diarize (before transcribe so pyannote releases ~2GB before Whisper loads) ----
         turns: list = []
@@ -141,6 +133,9 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         turns = _load_turns(turns_cache) if turns_cache.exists() else []
         transcription = _load_transcript(transcript_cache)
 
+    if cover_path is None:
+        cover_path = _download_cover(ep, show_dir)
+
     # ---- align speakers ----
     if turns:
         aligned_segs = align_speakers(transcription.segments, turns)
@@ -169,6 +164,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             authors=ep.authors,
             link=ep.link,
             subtitle=ep.subtitle,
+            episode_guid=ep.guid,
         )
     except SummarizeFailure as e:
         # cache preserved — retry will skip diarize+transcribe
@@ -251,7 +247,12 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url
             if wiki_token and ep.tags:
-                push_wiki_tags(lark=deps.lark, doc_token=wiki_token, tags=ep.tags)
+                push_wiki_tags(
+                    lark=deps.lark,
+                    doc_token=wiki_token,
+                    tags=ep.tags,
+                    episode_guid=ep.guid,
+                )
     except Exception:
         logger.exception("wiki push failed for %s — continuing", ep.guid)
 
@@ -359,6 +360,23 @@ def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,
 
 def _safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in s)[:120]
+
+
+def _download_cover(ep: Episode, show_dir: Path) -> Path | None:
+    """Download episode cover if missing. Soft-fail; returns local path or None."""
+    if not ep.image_url:
+        return None
+    cover_dest = show_dir / ".assets" / f"{_safe(ep.guid)}.jpg"
+    if cover_dest.exists() and cover_dest.stat().st_size >= 1000:
+        return cover_dest
+    try:
+        _download_binary_to_file(ep.image_url, cover_dest, min_bytes=1000)
+        size_kb = cover_dest.stat().st_size // 1024
+        logger.info("cover saved %d KB for %s", size_kb, ep.guid)
+        return cover_dest
+    except (DownloadError, Exception) as e:
+        logger.warning("cover download failed for %s — %s", ep.guid, e)
+        return None
 
 
 def _assert_memory_available(required_gb: float, stage: str) -> None:

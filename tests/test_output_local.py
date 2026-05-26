@@ -3,6 +3,18 @@ from broadcast2summary.output_local import write_local_markdown, render_markdown
 from broadcast2summary.transcribe import Segment
 
 
+def test_render_markdown_omits_cover_without_path():
+    summary = {
+        "tldr": "x", "key_points": [], "quotes": [], "resources": [],
+        "chapters": [], "guests": [], "actionable_items": [],
+    }
+    md = render_markdown(
+        "X", "T", "2026-05-26T00:00:00Z", summary, [],
+        cover_rel_path=None,
+    )
+    assert "![封面]" not in md
+
+
 def test_render_markdown_includes_frontmatter_subtitle_cover():
     summary = {
         "tldr": "x", "key_points": [], "quotes": [], "resources": [],

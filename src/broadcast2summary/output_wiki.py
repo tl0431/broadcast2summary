@@ -67,7 +67,9 @@ def _detect_wiki_tag_capability(lark) -> bool:
     return _wiki_tag_capability_cache
 
 
-def push_wiki_tags(*, lark, doc_token: str, tags: tuple[str, ...]) -> None:
+def push_wiki_tags(
+    *, lark, doc_token: str, tags: tuple[str, ...], episode_guid: str = "",
+) -> None:
     if not tags or not doc_token:
         return
     if not _detect_wiki_tag_capability(lark):
@@ -79,4 +81,5 @@ def push_wiki_tags(*, lark, doc_token: str, tags: tuple[str, ...]) -> None:
             "--tags", ",".join(tags),
         ])
     except Exception as e:
-        logger.warning("wiki tag push failed for %s — %s", doc_token, e)
+        who = episode_guid or doc_token
+        logger.warning("wiki tag push failed for %s — %s", who, e)

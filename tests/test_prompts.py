@@ -138,6 +138,24 @@ def test_truncate_shownotes_caps_at_1500_chars():
     assert out.endswith("…")
 
 
+def test_truncate_shownotes_logs_guid(caplog):
+    import logging
+    from broadcast2summary.prompts import _truncate_shownotes
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.prompts"):
+        _truncate_shownotes("x" * 3000, episode_guid="ep-guid-1")
+    assert any("ep-guid-1" in r.message for r in caplog.records)
+
+
+def test_render_chunk_summary_prompt_includes_shownotes():
+    from broadcast2summary.prompts import render_chunk_summary_prompt
+    p = render_chunk_summary_prompt(
+        show_name="X", chunk_idx=1, total_chunks=2, chunk="[00:00:00] hi",
+        shownotes="CreaoAI anchor",
+    )
+    assert "CreaoAI anchor" in p
+    assert p.index("CreaoAI anchor") < p.index("[00:00:00]")
+
+
 def test_render_summary_prompt_logs_total_size(caplog):
     import logging
     from broadcast2summary.prompts import render_summary_prompt

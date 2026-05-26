@@ -854,6 +854,56 @@ def _long_transcript_path(tmp_path: Path) -> Path:
     return path
 
 
+def test_pipeline_downloads_cover_on_transcript_cache_hit(tmp_path, fixtures_dir, monkeypatch):
+    """Cover must be fetched even when transcript is already cached."""
+    import shutil
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+    import broadcast2summary.pipeline as pipeline_mod
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+    sample = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+
+    guid = "cache-hit-cover"
+    cache_dir = tmp_path / "audio" / "cache" / guid
+    cache_dir.mkdir(parents=True)
+    shutil.copy(_long_transcript_path(tmp_path), cache_dir / "transcript.json")
+
+    captured_urls: list[str] = []
+
+    def fake_binary(url, dst, *, min_bytes=1):
+        captured_urls.append(url)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(b"x" * 5000)
+
+    monkeypatch.setattr(pipeline_mod, "_download_binary_to_file", fake_binary)
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(_long_transcript_path(tmp_path)),
+        summarize_stubs=SummarizeStubs(deepseek=[sample, sample], claude=[sample]),
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None, lark_folder_token=None, wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+    )
+    ep = Episode(
+        guid=guid, title="T", pub_date="2026-05-26T00:00:00Z",
+        audio_url="https://x/a.mp3", duration_seconds=600,
+        image_url="https://cdn.example.com/cover.jpg", feed_name="F",
+    )
+    result = process_episode(ep, deps=deps)
+    assert result.success
+    assert captured_urls == ["https://cdn.example.com/cover.jpg"]
+    assert (tmp_path / "archive" / "F" / ".assets" / f"{guid}.jpg").exists()
+
+
 def test_cover_download_failure_does_not_fail_episode(tmp_path, fixtures_dir, caplog):
     import logging
     from broadcast2summary.pipeline import process_episode, PipelineDeps

@@ -87,6 +87,18 @@ def test_parse_feed_extracts_episode_season_authors(fixtures_dir):
     assert e.authors == ("Alice, Bob",) or e.authors == ("Alice", "Bob")
 
 
+def test_parse_feed_empty_shownotes_logs_warning(fixtures_dir, caplog):
+    import logging
+    from broadcast2summary.rss import parse_feed
+    with caplog.at_level(logging.WARNING, logger="broadcast2summary.rss"):
+        eps = parse_feed(
+            (fixtures_dir / "sample_feed.xml").read_text(encoding="utf-8"),
+            feed_name="Test",
+        )
+    assert eps
+    assert any("shownotes empty" in r.message for r in caplog.records)
+
+
 def test_parse_feed_extracts_tags_image(fixtures_dir):
     from broadcast2summary.rss import parse_feed
     xml = (fixtures_dir / "sample_rich_feed.xml").read_text(encoding="utf-8")

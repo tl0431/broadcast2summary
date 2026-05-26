@@ -71,12 +71,14 @@ def summarize(
     authors: tuple[str, ...] = (),
     link: str = "",
     subtitle: str = "",
+    episode_guid: str = "",
 ) -> Summary:
     meta = dict(
         shownotes=shownotes,
         authors=authors,
         link=link,
         subtitle=subtitle,
+        episode_guid=episode_guid,
     )
     if len(transcript_with_timestamps) > _MAPREDUCE_THRESHOLD:
         logger.info(
@@ -144,6 +146,7 @@ def _summarize_mapreduce(
     authors: tuple[str, ...] = (),
     link: str = "",
     subtitle: str = "",
+    episode_guid: str = "",
 ) -> Summary:
     chunks = _split_chunks(transcript_with_timestamps, _CHUNK_SIZE)
     total = len(chunks)

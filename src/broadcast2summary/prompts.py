@@ -116,25 +116,36 @@ _SYNTHESIS_PROMPT_HEADER = """你是专业播客内容编辑。以下是「{show
 """
 
 
-def _truncate_shownotes(text: str) -> str:
+def _truncate_shownotes(text: str, *, episode_guid: str = "") -> str:
     if not text:
         return ""
     if len(text) <= _SHOWNOTES_MAX_CHARS:
         return text
-    logger.warning(
-        "prompts: shownotes truncated %d → %d chars",
-        len(text),
-        _SHOWNOTES_MAX_CHARS,
-    )
+    if episode_guid:
+        logger.warning(
+            "prompts: shownotes truncated %d → %d chars for %s",
+            len(text),
+            _SHOWNOTES_MAX_CHARS,
+            episode_guid,
+        )
+    else:
+        logger.warning(
+            "prompts: shownotes truncated %d → %d chars",
+            len(text),
+            _SHOWNOTES_MAX_CHARS,
+        )
     return text[: _SHOWNOTES_MAX_CHARS - 1] + "…"
 
 
-def _log_prompt_size(prompt: str, *, label: str = "summary") -> None:
+def _log_prompt_size(
+    prompt: str, *, label: str = "summary", episode_guid: str = "",
+) -> None:
     n = len(prompt)
+    ctx = f"{label}" + (f" for {episode_guid}" if episode_guid else "")
     if n >= _PROMPT_SIZE_WARN_THRESHOLD:
-        logger.warning("prompt size %d chars (%s) — investigate", n, label)
+        logger.warning("prompt size %d chars (%s) — investigate", n, ctx)
     else:
-        logger.info("prompt size %d chars (%s)", n, label)
+        logger.info("prompt size %d chars (%s)", n, ctx)
 
 
 def _format_metadata(
@@ -143,12 +154,15 @@ def _format_metadata(
     authors: tuple[str, ...],
     link: str,
     subtitle: str,
+    episode_guid: str = "",
 ) -> dict[str, str]:
     return {
         "subtitle": subtitle or "—",
         "authors": ", ".join(authors) if authors else "—",
         "link": link or "—",
-        "shownotes": _truncate_shownotes(shownotes) if shownotes else "—",
+        "shownotes": _truncate_shownotes(shownotes, episode_guid=episode_guid)
+        if shownotes
+        else "—",
     }
 
 
@@ -159,8 +173,12 @@ def render_chunk_summary_prompt(
     total_chunks: int,
     chunk: str,
     shownotes: str = "",
+    episode_guid: str = "",
 ) -> str:
-    meta = _format_metadata(shownotes=shownotes, authors=(), link="", subtitle="")
+    meta = _format_metadata(
+        shownotes=shownotes, authors=(), link="", subtitle="",
+        episode_guid=episode_guid,
+    )
     prompt = _CHUNK_SUMMARY_PROMPT.format(
         show_name=show_name,
         chunk_idx=chunk_idx,
@@ -168,7 +186,7 @@ def render_chunk_summary_prompt(
         shownotes=meta["shownotes"],
         chunk=chunk,
     )
-    _log_prompt_size(prompt, label="chunk")
+    _log_prompt_size(prompt, label="chunk", episode_guid=episode_guid)
     return prompt
 
 
@@ -184,6 +202,7 @@ def render_synthesis_prompt(
     authors: tuple[str, ...] = (),
     link: str = "",
     subtitle: str = "",
+    episode_guid: str = "",
 ) -> str:
     schema = (
         _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS
@@ -197,6 +216,7 @@ def render_synthesis_prompt(
     )
     meta = _format_metadata(
         shownotes=shownotes, authors=authors, link=link, subtitle=subtitle,
+        episode_guid=episode_guid,
     )
     prompt = (
         _SYNTHESIS_PROMPT_HEADER.format(
@@ -214,7 +234,7 @@ def render_synthesis_prompt(
         + "\n\n"
         + requirements
     )
-    _log_prompt_size(prompt, label="synthesis")
+    _log_prompt_size(prompt, label="synthesis", episode_guid=episode_guid)
     return prompt
 
 
@@ -230,6 +250,7 @@ def render_summary_prompt(
     authors: tuple[str, ...] = (),
     link: str = "",
     subtitle: str = "",
+    episode_guid: str = "",
 ) -> str:
     schema = (
         _SUMMARY_JSON_SCHEMA_WITH_SPEAKERS
@@ -244,6 +265,7 @@ def render_summary_prompt(
     body = f"{schema}\n\n{requirements}"
     meta = _format_metadata(
         shownotes=shownotes, authors=authors, link=link, subtitle=subtitle,
+        episode_guid=episode_guid,
     )
     prompt = _SUMMARY_PROMPT_HEADER.format(
         show_name=show_name,
@@ -256,5 +278,5 @@ def render_summary_prompt(
         link=meta["link"],
         shownotes=meta["shownotes"],
     ) + body
-    _log_prompt_size(prompt, label="summary")
+    _log_prompt_size(prompt, label="summary", episode_guid=episode_guid)
     return prompt
