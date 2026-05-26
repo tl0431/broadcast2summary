@@ -185,7 +185,12 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
 
     pending_by_feed: dict[str, list[Episode]] = {}
     for f in feeds:
-        xml = _fetch_feed_xml(f.rss_url)
+        try:
+            xml = _fetch_feed_xml(f.rss_url)
+        except Exception:
+            logger.error("feed %r: RSS fetch failed — skipping", f.name, exc_info=True)
+            pending_by_feed[f.name] = []
+            continue
         episodes = parse_feed(xml, feed_name=f.name)
         episodes = [
             Episode(
@@ -202,6 +207,7 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
         )
         pending_by_feed[f.name] = new
         stats.episodes_new += len(new)
+        logger.info("feed %r: %d new episode(s)", f.name, len(new))
 
     if dry_run:
         for fname, eps in pending_by_feed.items():

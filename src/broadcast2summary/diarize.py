@@ -84,9 +84,19 @@ def diarize_audio(audio_path: Path, *, max_speakers: int = 6) -> list[SpeakerTur
     waveform = torch.from_numpy(audio).unsqueeze(0)  # [1, samples]
     log.debug("running pyannote on %s (%d samples)", audio_path.name, len(audio))
 
+    _last_pct: list[int] = [-1]
+
+    def _progress_hook(step_name, step_artifact, file=None, total=None, completed=None):
+        if total and completed is not None:
+            pct = int(completed / total * 100)
+            if pct >= _last_pct[0] + 10:
+                _last_pct[0] = pct - (pct % 10)
+                log.info("diarization progress: %d%%", _last_pct[0])
+
     diarization = pipeline(
         {"waveform": waveform, "sample_rate": sr},
         max_speakers=max_speakers,
+        hook=_progress_hook,
     )
 
     turns = []

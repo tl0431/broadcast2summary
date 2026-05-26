@@ -768,3 +768,69 @@ def test_diarization_exception_sends_im_warning(tmp_path, fixtures_dir, monkeypa
         f"Expected push_failure_to_im(stage='diarization'), got calls: {im_failure_calls}"
     )
 
+
+
+
+
+# ---------------------------------------------------------------------------
+# Bug 3: pipeline must log each stage so run log is observable
+# ---------------------------------------------------------------------------
+
+def test_pipeline_logs_episode_start_and_stages(tmp_path: Path, fixtures_dir, caplog):
+    """process_episode must emit INFO logs for episode start, download,
+    transcribe, and summarize so operators can track progress in run-*.log."""
+    import logging
+    from broadcast2summary.pipeline import process_episode, PipelineDeps
+    from broadcast2summary.rss import Episode
+    from broadcast2summary.state import State
+    from broadcast2summary.transcribe import StubBackend
+    from broadcast2summary.summarize import SummarizeStubs
+
+    state = State(tmp_path / "s.db")
+    state.init_schema()
+
+    sample_summary_text = (fixtures_dir / "sample_summary.json").read_text(encoding="utf-8")
+
+    deps = PipelineDeps(
+        state=state,
+        transcribe_backend=StubBackend(fixtures_dir / "sample_transcript.json"),
+        summarize_stubs=SummarizeStubs(
+            deepseek=[sample_summary_text, sample_summary_text],
+            claude=[sample_summary_text],
+        ),
+        lark=None,
+        archive_root=tmp_path / "archive",
+        audio_dir=tmp_path / "audio",
+        failed_dir=tmp_path / "failed",
+        im_target=None,
+        lark_folder_token=None,
+        wiki_root=None,
+        download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
+        l3_enabled=False,
+        diarization_enabled=False,
+        max_speakers=2,
+    )
+
+    ep = Episode(
+        guid="stage-log-test-001",
+        title="阶段日志测试",
+        pub_date="2026-05-25T23:00:00Z",
+        audio_url="https://example.com/ep.mp3",
+        duration_seconds=300,
+        feed_name="TestFeed",
+    )
+
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.pipeline"):
+        process_episode(ep, deps=deps)
+
+    messages = [r.message for r in caplog.records
+                if r.name.startswith("broadcast2summary.pipeline")]
+
+    assert any("stage-log-test-001" in m or "阶段日志测试" in m for m in messages), \
+        f"must log episode start with guid or title, got: {messages}"
+    assert any("download" in m.lower() for m in messages), \
+        f"must log download stage, got: {messages}"
+    assert any("transcri" in m.lower() for m in messages), \
+        f"must log transcribe stage, got: {messages}"
+    assert any("summar" in m.lower() for m in messages), \
+        f"must log summarize stage, got: {messages}"

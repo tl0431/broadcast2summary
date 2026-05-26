@@ -50,7 +50,7 @@ def test_diarize_audio_returns_empty_when_pipeline_finds_nothing(monkeypatch, tm
         speaker_diarization = FakeAnnotation()
 
     class FakePipeline:
-        def __call__(self, audio_dict, max_speakers=6):
+        def __call__(self, audio_dict, max_speakers=6, hook=None):
             return FakeDiarizeOutput()
 
     monkeypatch.setattr("broadcast2summary.diarize._load_pipeline",
@@ -116,6 +116,40 @@ def test_align_speakers_with_real_wav_fixture(monkeypatch):
     assert out[4].speaker_id == "SPEAKER_00"
     # wav file is present (sanity)
     assert wav.stat().st_size > 100_000
+
+
+def test_diarize_audio_logs_progress(monkeypatch, tmp_path, caplog):
+    """diarize_audio must log progress during pipeline execution."""
+    import logging
+    import numpy as np
+    from broadcast2summary.diarize import diarize_audio
+
+    class FakeAnnotation:
+        def itertracks(self, yield_label=False):
+            return iter([])
+
+    class FakeDiarizeOutput:
+        speaker_diarization = FakeAnnotation()
+
+    class FakePipeline:
+        def __call__(self, audio_dict, max_speakers=6, hook=None):
+            # Simulate pyannote progress callbacks
+            if hook is not None:
+                hook("segmentation", None, file=None, total=10, completed=5)
+                hook("segmentation", None, file=None, total=10, completed=10)
+            return FakeDiarizeOutput()
+
+    monkeypatch.setattr("broadcast2summary.diarize._load_pipeline", lambda: FakePipeline())
+    monkeypatch.setattr(
+        "broadcast2summary.diarize._load_audio",
+        lambda path, target_sr=16000: (np.zeros(16000, dtype=np.float32), 16000),
+    )
+
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.diarize"):
+        diarize_audio(tmp_path / "x.wav")
+
+    progress_logs = [r for r in caplog.records if "%" in r.message or "progress" in r.message.lower()]
+    assert progress_logs, "diarize_audio must emit at least one progress log during pipeline execution"
 
 
 @pytest.mark.slow

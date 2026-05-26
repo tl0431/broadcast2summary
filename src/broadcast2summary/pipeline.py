@@ -56,6 +56,7 @@ class EpisodeResult:
 
 
 def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
+    logger.info("episode start: [%s] %s / %s", ep.guid, ep.feed_name, ep.title)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     deps.audio_dir.mkdir(parents=True, exist_ok=True)
     audio_path = deps.audio_dir / f"{_safe(ep.guid)}.mp3"
@@ -68,6 +69,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     # ---- download (skip if transcript already cached) ----
     if not transcript_cache.exists():
         try:
+            logger.info("downloading audio: [%s] %s", ep.guid, ep.audio_url)
             deps.download_fn(ep.audio_url, audio_path)
         except Exception as e:
             return _record_failure(deps, ep, "download", e, now, mp3_path=None)
@@ -80,6 +82,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 logger.info("diarization loaded from cache for %s", ep.guid)
             else:
                 try:
+                    logger.info("diarizing: [%s]", ep.guid)
                     _assert_memory_available(required_gb=1.7, stage="diarization")
                     turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
                     _save_turns(turns, turns_cache)
@@ -102,6 +105,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
 
         # ---- transcribe ----
         try:
+            logger.info("transcribing: [%s]", ep.guid)
             transcription = transcribe_audio(audio_path, backend=deps.transcribe_backend)
             _save_transcript(transcription, transcript_cache)
             logger.info("transcript cached for %s (%d chars)", ep.guid,
@@ -133,6 +137,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         )
 
     # ---- summarize ----
+    logger.info("summarizing: [%s]", ep.guid)
     transcript_full = transcription.full_text()
     chunked = "".join(transcription.chunked_for_summary())
     logger.info("transcript for summarize: %d chars for %s", len(chunked), ep.guid)

@@ -144,3 +144,107 @@ def test_sigterm_handler_is_registered(monkeypatch, tmp_path):
     handler = registered[signal.SIGTERM]
     assert handler is not signal.SIG_DFL and handler is not signal.SIG_IGN, \
         "SIGTERM handler must be a real function, not SIG_DFL or SIG_IGN"
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: feed discovery loop must survive per-feed RSS fetch errors
+# ---------------------------------------------------------------------------
+
+def _make_fake_config(tmp_path, feed_urls: list[tuple[str, str]]):
+    """Return a duck-typed config with multiple feeds."""
+    class _FakePaths:
+        state_dir = tmp_path / "state"
+        log_dir = tmp_path / "logs"
+
+    class _FakeDefaults:
+        recent_n = 5
+
+    class _FakeFeed:
+        def __init__(self, name, rss_url):
+            self.name = name
+            self.rss_url = rss_url
+            self.wiki_node_token = None
+            self.language = "zh"
+
+    class _FakeCfg:
+        paths = _FakePaths()
+        defaults = _FakeDefaults()
+        def enabled_feeds(self):
+            return [_FakeFeed(name, url) for name, url in feed_urls]
+
+    return _FakeCfg()
+
+
+def test_feed_discovery_continues_after_rss_fetch_error(monkeypatch, tmp_path, caplog):
+    """If one feed's RSS fetch raises, remaining feeds must still be checked."""
+    import logging
+    from broadcast2summary.runner import cmd_run
+
+    good_xml = """<?xml version="1.0"?>
+    <rss version="2.0"><channel>
+      <item>
+        <guid>good-ep-001</guid><title>Good Episode</title>
+        <pubDate>Mon, 25 May 2026 00:00:00 +0000</pubDate>
+        <enclosure url="http://example.com/good.mp3" type="audio/mpeg"/>
+      </item>
+    </channel></rss>"""
+
+    call_log: list[str] = []
+
+    def fake_fetch(url: str) -> str:
+        call_log.append(url)
+        if "bad-feed" in url:
+            raise RuntimeError("simulated RSS fetch failure")
+        return good_xml
+
+    cfg = _make_fake_config(tmp_path, [
+        ("BadFeed", "https://bad-feed.example.com/rss"),
+        ("GoodFeed", "https://good-feed.example.com/rss"),
+    ])
+
+    monkeypatch.setattr("broadcast2summary.runner._load", lambda: cfg)
+    monkeypatch.setattr("broadcast2summary.runner._fetch_feed_xml", fake_fetch)
+    monkeypatch.setattr("broadcast2summary.runner.configure_run_logging", lambda **kw: tmp_path / "run.log")
+    monkeypatch.setattr("broadcast2summary.runner.write_summary_header", lambda *a, **kw: None)
+
+    with caplog.at_level(logging.ERROR, logger="broadcast2summary.runner"):
+        cmd_run(feed_name=None, dry_run=True, cheap=False)
+
+    # Both feeds must have been attempted
+    assert any("bad-feed" in u for u in call_log), "bad feed must have been attempted"
+    assert any("good-feed" in u for u in call_log), "good feed must have been attempted even after bad feed fails"
+
+    # An ERROR log must mention the failing feed
+    assert any("BadFeed" in r.message and r.levelno == logging.ERROR
+               for r in caplog.records), "must log ERROR for the failing feed"
+
+
+def test_feed_discovery_logs_new_episode_count(monkeypatch, tmp_path, caplog):
+    """Feed discovery must emit an INFO log with the new episode count per feed."""
+    import logging
+    from broadcast2summary.runner import cmd_run
+
+    xml_with_one_ep = """<?xml version="1.0"?>
+    <rss version="2.0"><channel>
+      <item>
+        <guid>ep-xyz-123</guid><title>Test Episode</title>
+        <pubDate>Mon, 25 May 2026 00:00:00 +0000</pubDate>
+        <enclosure url="http://example.com/ep.mp3" type="audio/mpeg"/>
+      </item>
+    </channel></rss>"""
+
+    cfg = _make_fake_config(tmp_path, [("MyShow", "https://example.com/rss")])
+
+    monkeypatch.setattr("broadcast2summary.runner._load", lambda: cfg)
+    monkeypatch.setattr("broadcast2summary.runner._fetch_feed_xml", lambda url: xml_with_one_ep)
+    monkeypatch.setattr("broadcast2summary.runner.configure_run_logging", lambda **kw: tmp_path / "run.log")
+    monkeypatch.setattr("broadcast2summary.runner.write_summary_header", lambda *a, **kw: None)
+
+    with caplog.at_level(logging.INFO, logger="broadcast2summary.runner"):
+        cmd_run(feed_name=None, dry_run=True, cheap=False)
+
+    # Must emit an INFO log mentioning the feed name and episode count
+    assert any(
+        "MyShow" in r.message and "1" in r.message and r.levelno == logging.INFO
+        for r in caplog.records
+    ), "must log INFO with feed name and new episode count"
