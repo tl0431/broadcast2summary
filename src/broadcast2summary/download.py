@@ -13,6 +13,10 @@ class DownloadError(Exception):
     pass
 
 
+def _client_factory() -> httpx.Client:
+    return httpx.Client(timeout=TIMEOUT, follow_redirects=True)
+
+
 def download_audio(url: str, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists() and dst.stat().st_size >= MIN_BYTES:
@@ -24,7 +28,7 @@ def download_audio(url: str, dst: Path) -> None:
     for attempt in range(1, MAX_RETRIES + 1):
         existing = tmp.stat().st_size if tmp.exists() else 0
         try:
-            with httpx.Client(timeout=TIMEOUT, follow_redirects=True) as client:
+            with _client_factory() as client:
                 if existing > 0:
                     head = client.head(url)
                     if head.status_code == 200:
