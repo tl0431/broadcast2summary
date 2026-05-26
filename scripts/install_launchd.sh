@@ -23,6 +23,8 @@ cat > "$PLIST" <<EOF
     <string>com.tl.broadcast2summary</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-dims</string>
         <string>/bin/bash</string>
         <string>-lc</string>
         <string>source ~/.bashrc_claude &amp;&amp; cd ${REPO_DIR_XML} &amp;&amp; source .venv/bin/activate &amp;&amp; python -m broadcast2summary run</string>
