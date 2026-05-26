@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import html
 from html.parser import HTMLParser
@@ -29,6 +29,16 @@ class Episode:
     authors: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     image_url: str = ""
+
+
+def attach_feed_config(ep: Episode, feed) -> Episode:
+    """Merge feed-level fields onto a parsed episode without dropping RSS metadata."""
+    return replace(
+        ep,
+        feed_name=getattr(feed, "name", ep.feed_name),
+        wiki_node_token=getattr(feed, "wiki_node_token", ep.wiki_node_token),
+        language=getattr(feed, "language", ep.language),
+    )
 
 
 def parse_feed(rss_xml: str, *, feed_name: str = "") -> list[Episode]:

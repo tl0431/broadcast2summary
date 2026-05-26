@@ -13,7 +13,7 @@ import httpx
 import yaml as _yaml
 from .config import AppConfig, load_config
 from .state import State
-from .rss import parse_feed, filter_new_episodes, Episode
+from .rss import parse_feed, filter_new_episodes, Episode, attach_feed_config
 from .download import download_audio
 from .transcribe import FasterWhisperBackend, WhisperCppBackend
 from .summarize import DeepSeekClient, ClaudeClient
@@ -192,15 +192,7 @@ def cmd_run(*, feed_name: str | None, dry_run: bool, cheap: bool = False) -> int
             pending_by_feed[f.name] = []
             continue
         episodes = parse_feed(xml, feed_name=f.name)
-        episodes = [
-            Episode(
-                guid=e.guid, title=e.title, pub_date=e.pub_date,
-                audio_url=e.audio_url, duration_seconds=e.duration_seconds,
-                feed_name=e.feed_name, wiki_node_token=f.wiki_node_token,
-                language=f.language,
-            )
-            for e in episodes
-        ]
+        episodes = [attach_feed_config(e, f) for e in episodes]
         processed = _already_processed(state, episodes)
         new = filter_new_episodes(
             episodes, already_processed=processed, recent_n=cfg.defaults.recent_n
@@ -346,15 +338,7 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
         return 2
     xml = _fetch_feed_xml(feed.rss_url)
     episodes = parse_feed(xml, feed_name=feed.name)
-    episodes = [
-        Episode(
-            guid=e.guid, title=e.title, pub_date=e.pub_date,
-            audio_url=e.audio_url, duration_seconds=e.duration_seconds,
-            feed_name=e.feed_name, wiki_node_token=feed.wiki_node_token,
-            language=feed.language,
-        )
-        for e in episodes
-    ]
+    episodes = [attach_feed_config(e, feed) for e in episodes]
     cutoff = since
     targets = [e for e in episodes if e.pub_date[:10] >= cutoff]
     deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=_cheap_from_env(cheap))
@@ -381,21 +365,28 @@ def _make_transcribe_backend(cfg: AppConfig, *, cheap: bool):
 
 
 def _build_deps(cfg: AppConfig, state: State, state_dir: Path, paths,
-                *, cheap: bool = False) -> PipelineDeps:
+                *, cheap: bool = False, lark_enabled: bool = True,
+                im_target: str | None = None) -> PipelineDeps:
+    lark = LarkClient() if lark_enabled else None
+    resolved_im = im_target if im_target is not None else (
+        cfg.lark_im_target_open_id if lark_enabled else None
+    )
+    wiki_root = cfg.lark_wiki_root_token if lark_enabled else None
+    lark_folder = cfg.lark_folder_token if lark_enabled else None
     return PipelineDeps(
         state=state,
         transcribe_backend=_make_transcribe_backend(cfg, cheap=cheap),
         archive_root=paths.archive_root,
         audio_dir=state_dir / "audio",
         failed_dir=state_dir / "failed",
-        im_target=cfg.lark_im_target_open_id,
-        lark_folder_token=cfg.lark_folder_token,
-        wiki_root=cfg.lark_wiki_root_token,
+        im_target=resolved_im,
+        lark_folder_token=lark_folder,
+        wiki_root=wiki_root,
         download_fn=download_audio,
         l3_enabled=cfg.defaults.quality_l3_enabled,
         diarization_enabled=cfg.transcribe.diarization,
         max_speakers=cfg.transcribe.max_speakers,
-        lark=LarkClient(),
+        lark=lark,
         deepseek=DeepSeekClient(api_key=cfg.deepseek_api_key, cheap=cheap),
         claude=ClaudeClient(
             auth_token=cfg.anthropic_auth_token,
