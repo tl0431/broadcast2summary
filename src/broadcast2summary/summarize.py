@@ -2,11 +2,22 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Protocol
 from .prompts import render_summary_prompt, render_chunk_summary_prompt, render_synthesis_prompt
 from .quality import evaluate, QualityResult
 
 logger = logging.getLogger(__name__)
+
+
+def _save_raw_debug(raw: str, debug_dir: Path | None, name: str) -> None:
+    if debug_dir is None:
+        return
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    path = debug_dir / name
+    path.write_text(raw, encoding="utf-8")
+    logger.info("summarize raw saved for debug: %s", path)
+
 
 _MAPREDUCE_THRESHOLD = 60_000  # chars; ~40K tokens, triggers map-reduce above this
 _CHUNK_SIZE = 15_000           # chars per map chunk; fits comfortably in one DeepSeek call
@@ -72,6 +83,7 @@ def summarize(
     link: str = "",
     subtitle: str = "",
     episode_guid: str = "",
+    debug_dir: Path | None = None,
 ) -> Summary:
     meta = dict(
         shownotes=shownotes,
@@ -96,6 +108,7 @@ def summarize(
             claude=claude,
             stubs=stubs,
             include_speaker_names=include_speaker_names,
+            debug_dir=debug_dir,
             **meta,
         )
 
@@ -114,18 +127,21 @@ def summarize(
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.DEEPSEEK, quality=q)
+    _save_raw_debug(raw, debug_dir, "attempt_1_deepseek.txt")
 
     # ---- attempt 2: DeepSeek @ 0.5 ----
     raw = _call(deepseek, stubs, which="deepseek", prompt=prompt, temperature=0.5)
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.DEEPSEEK, quality=q)
+    _save_raw_debug(raw, debug_dir, "attempt_2_deepseek.txt")
 
     # ---- attempt 3: Claude Sonnet 4.6 ----
     raw = _call(claude, stubs, which="claude", prompt=prompt, temperature=0.3)
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.CLAUDE_SONNET, quality=q)
+    _save_raw_debug(raw, debug_dir, "attempt_3_claude.txt")
 
     raise SummarizeFailure(f"all attempts failed; last quality reason: {q.reason}")
 
@@ -147,6 +163,7 @@ def _summarize_mapreduce(
     link: str = "",
     subtitle: str = "",
     episode_guid: str = "",
+    debug_dir: Path | None = None,
 ) -> Summary:
     chunks = _split_chunks(transcript_with_timestamps, _CHUNK_SIZE)
     total = len(chunks)
@@ -185,16 +202,19 @@ def _summarize_mapreduce(
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.DEEPSEEK, quality=q)
+    _save_raw_debug(raw, debug_dir, "synthesis_1_deepseek.txt")
 
     raw = _call(deepseek, stubs, which="deepseek", prompt=synthesis_prompt, temperature=0.5)
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.DEEPSEEK, quality=q)
+    _save_raw_debug(raw, debug_dir, "synthesis_2_deepseek.txt")
 
     raw = _call(claude, stubs, which="claude", prompt=synthesis_prompt, temperature=0.3)
     q = evaluate(raw, transcript=transcript_full, l3_enabled=l3_enabled)
     if q.passed:
         return Summary(raw=raw, parsed=q.parsed or {}, model_used=ModelChoice.CLAUDE_SONNET, quality=q)
+    _save_raw_debug(raw, debug_dir, "synthesis_3_claude.txt")
 
     raise SummarizeFailure(f"map-reduce synthesis failed; last quality reason: {q.reason}")
 

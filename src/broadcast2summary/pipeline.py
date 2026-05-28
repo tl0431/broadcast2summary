@@ -165,10 +165,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             link=ep.link,
             subtitle=ep.subtitle,
             episode_guid=ep.guid,
+            debug_dir=cache_dir / "raw_debug",
         )
     except SummarizeFailure as e:
         # cache preserved — retry will skip diarize+transcribe
-        logger.warning("summarize failed for %s — transcript cached for retry", ep.guid)
+        logger.warning("summarize failed for %s — %s — transcript cached for retry", ep.guid, e)
         return _record_failure(deps, ep, "summarize", e, now, mp3_path=None)
 
     # ---- translate (en only; failure = skip translation, continue) ----
