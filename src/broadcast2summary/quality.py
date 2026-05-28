@@ -54,7 +54,7 @@ def evaluate(
     if l3_enabled:
         corrections = parsed.get("asr_corrections") or {}
         corrected_transcript = transcript
-        for wrong, right in corrections.items():
+        for wrong, right in corrections.items():  # values must not overlap with other keys
             corrected_transcript = corrected_transcript.replace(wrong, right)
         l3_err = _l3_check(flat, corrected_transcript)
         if l3_err:

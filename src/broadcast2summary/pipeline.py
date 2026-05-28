@@ -251,7 +251,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             )
             wiki_token = wiki_result.doc_token
             wiki_url = wiki_result.url
-            logger.info("wiki push ok for %s — token=%r url=%r", ep.guid, wiki_token, wiki_url)
+            logger.info("wiki push ok for %s — token=%s url=%s", ep.guid, wiki_token, wiki_url)
             if wiki_token and ep.tags:
                 push_wiki_tags(
                     lark=deps.lark,
