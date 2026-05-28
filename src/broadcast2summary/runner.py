@@ -413,13 +413,21 @@ def _serialize_deps_args(cfg: AppConfig, *, cheap: bool) -> dict:
         "diarization_enabled": cfg.transcribe.diarization,
         "max_speakers": cfg.transcribe.max_speakers,
         "cheap": cheap,
+        "log_dir": str(cfg.paths.log_dir),
     }
 
 
 def _run_in_worker(ep: Episode, deps_args: dict):
     from pathlib import Path as _P
+    from datetime import datetime, timezone
+    from .logging_setup import configure_run_logging
     from .state import State
     from .config import TranscribeConfig
+
+    configure_run_logging(
+        log_dir=_P(deps_args["log_dir"]),
+        run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
     from .transcribe import FasterWhisperBackend, WhisperCppBackend
     from .summarize import DeepSeekClient, ClaudeClient
     from .lark_client import LarkClient

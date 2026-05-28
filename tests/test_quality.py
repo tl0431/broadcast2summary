@@ -86,6 +86,44 @@ def test_l3_fail_low_keyword_coverage():
     assert r.level == QualityLevel.L3
 
 
+def test_l3_passes_after_applying_asr_corrections():
+    # Transcript contains only ASR-error terms (8 distinct errors, repeated to dominate top-20).
+    # Summary uses the corrected terms exclusively.
+    # Without the fix, L3 extracts keywords from raw transcript (error terms) and finds 0 hits
+    # in the summary (corrected terms) → fails. With fix, corrections are applied first → passes.
+    errors = ["广播导", "脸华科", "古川道", "机翼", "微生pro", "百晶大战", "规机生命", "Tim Hook"]
+    corrects = ["光波导", "联发科", "骨传导", "记忆", "Vision Pro", "百镜大战", "硅基生命", "Tim Cook"]
+
+    # Build a transcript dominated by error terms (×300 each to ensure top-20 coverage and valid ratio)
+    raw_transcript = " ".join(errors * 300)
+
+    # Build a summary that only mentions corrected terms
+    corrected_content = " ".join(corrects * 5)
+    summary = {
+        "tldr": f"本期讨论了{corrected_content[:80]}等核心技术话题，嘉宾分享了深刻见解和实际案例。这是一次干货满满的技术分享。",
+        "key_points": [
+            f"光波导技术是AR眼镜的核心显示组件，联发科提供主要芯片方案" * 2,
+            f"骨传导音频与记忆模块构成眼镜的感知基础层" * 2,
+            f"Vision Pro定义了MR交互标准，百镜大战已进入白热化阶段" * 2,
+            f"硅基生命与碳基生命的界限正在被AI眼镜模糊" * 2,
+            f"Tim Cook的产品哲学深刻影响了整个可穿戴设备行业" * 2,
+        ],
+        "quotes": [],
+        "resources": [],
+        "chapters": [
+            {"ts_start": "00:00:00", "ts_end": "00:20:00", "title": "光波导与联发科芯片", "summary": "介绍光波导显示原理和联发科骨传导方案。"},
+            {"ts_start": "00:20:00", "ts_end": "00:40:00", "title": "Vision Pro与百镜大战", "summary": "分析Vision Pro定位和百镜大战竞争格局。"},
+            {"ts_start": "00:40:00", "ts_end": "01:00:00", "title": "硅基生命与Tim Cook", "summary": "探讨硅基生命概念和Tim Cook的产品哲学与记忆技术。"},
+        ],
+        "guests": ["李宏伟"],
+        "actionable_items": [],
+        "asr_corrections": {wrong: right for wrong, right in zip(errors, corrects)},
+    }
+    raw = json.dumps(summary, ensure_ascii=False)
+    result = evaluate(raw, transcript=raw_transcript, l3_enabled=True)
+    assert result.passed is True, f"expected pass after asr_corrections applied, got: {result.reason}"
+
+
 def test_l3_can_be_disabled():
     bad = {**GOOD, "tldr": "春天来临万物复苏百花盛开。夏日炎炎骄阳似火。秋风吹过落叶纷飞。冬天降临白雪皑皑。四季轮回自然更替。这是一个完整的季节循环描述。每个季节都有独特的特征和美景呈现。",
            "key_points": ["春天万物复苏百花盛开绿意盎然美丽景象令人陶醉",

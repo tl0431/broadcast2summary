@@ -285,6 +285,9 @@ class ClaudeClient:
             self.model = "claude-haiku-4-5-20251001" if cheap else "claude-sonnet-4-6"
 
     def complete(self, prompt: str, *, temperature: float) -> str:
+        # Anthropic has no json_object response_format equivalent, so Claude output is plain text.
+        # Known issue: Claude occasionally emits unescaped ASCII " inside JSON strings
+        # (e.g. "iPhone"时刻""), causing json.loads to fail at the L1 quality check.
         with self._client.messages.stream(
             model=self.model,
             max_tokens=4000,

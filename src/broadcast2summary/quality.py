@@ -52,7 +52,11 @@ def evaluate(
 
     # ---------- L3 ----------
     if l3_enabled:
-        l3_err = _l3_check(flat, transcript)
+        corrections = parsed.get("asr_corrections") or {}
+        corrected_transcript = transcript
+        for wrong, right in corrections.items():
+            corrected_transcript = corrected_transcript.replace(wrong, right)
+        l3_err = _l3_check(flat, corrected_transcript)
         if l3_err:
             return QualityResult(False, QualityLevel.L3, l3_err, parsed)
         return QualityResult(True, QualityLevel.L3, "ok", parsed)
