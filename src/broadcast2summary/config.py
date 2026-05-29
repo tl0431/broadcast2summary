@@ -26,6 +26,9 @@ class TranscribeConfig:
     min_avail_gb_per_worker: float = 1.5
     diarization: bool = True
     max_speakers: int = 6
+    min_speakers: int = 1
+    clustering_threshold: float = 0.65
+    clustering_min_cluster_size: int = 6
 
 
 @dataclass(frozen=True)
@@ -165,6 +168,9 @@ def load_config(
             "B2S_TRANSCRIBE_MAX_SPEAKERS",
             int(transcribe_raw.get("max_speakers", 6)),
         ),
+        min_speakers=int(transcribe_raw.get("min_speakers", 1)),
+        clustering_threshold=float(transcribe_raw.get("clustering_threshold", 0.65)),
+        clustering_min_cluster_size=int(transcribe_raw.get("clustering_min_cluster_size", 6)),
     )
 
     feeds_raw = raw.get("feeds") or []

@@ -343,7 +343,7 @@ def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, 
 
     monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
 
-    def fake_diarize(audio_path, max_speakers=6):
+    def fake_diarize(audio_path, max_speakers=6, min_speakers=1, clustering_threshold=0.65, clustering_min_cluster_size=6):
         return [SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=10.0)]
 
     def fake_align(segments, turns):

@@ -42,6 +42,9 @@ class PipelineDeps:
     summarize_stubs: SummarizeStubs | None = None
     diarization_enabled: bool = True
     max_speakers: int = 6
+    min_speakers: int = 1
+    clustering_threshold: float = 0.65
+    clustering_min_cluster_size: int = 6
 
 
 @dataclass(frozen=True)
@@ -89,7 +92,13 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 try:
                     logger.info("diarizing: [%s]", ep.guid)
                     _assert_memory_available(required_gb=1.7, stage="diarization")
-                    turns = diarize_audio(audio_path, max_speakers=deps.max_speakers)
+                    turns = diarize_audio(
+                        audio_path,
+                        max_speakers=deps.max_speakers,
+                        min_speakers=deps.min_speakers,
+                        clustering_threshold=deps.clustering_threshold,
+                        clustering_min_cluster_size=deps.clustering_min_cluster_size,
+                    )
                     _save_turns(turns, turns_cache)
                 except Exception as _diar_exc:
                     logger.exception(
