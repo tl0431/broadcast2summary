@@ -1,4 +1,7 @@
 import json
+import pytest
+
+from broadcast2summary.lark_client import LarkCliError
 from broadcast2summary.output_wiki import push_summary_to_wiki, WikiResult, prepare_wiki_markdown
 
 
@@ -15,10 +18,11 @@ class FakeLark:
 def test_push_summary_uses_docs_create_with_folder_token():
     fake = FakeLark(returns=[
         json.dumps({
+            "ok": True,
             "data": {
                 "doc_id": "doc_token_xyz",
                 "doc_url": "https://lark.feishu.cn/docx/doc_token_xyz",
-            }
+            },
         }),
     ])
     body = "# 测试\n\n[00:00:00] 句子1\n"
@@ -123,6 +127,51 @@ def test_push_wiki_tag_soft_fails_when_capability_missing(monkeypatch, caplog):
     with caplog.at_level(logging.INFO, logger="broadcast2summary.output_wiki"):
         push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
     assert any("capability" in r.message.lower() for r in caplog.records)
+
+
+def test_push_summary_raises_when_ok_false(caplog):
+    import logging
+
+    fake = FakeLark(returns=[
+        json.dumps({"ok": False, "error": {"message": "too many chars"}}),
+    ])
+    with caplog.at_level(logging.ERROR, logger="broadcast2summary.output_wiki"):
+        with pytest.raises(LarkCliError, match="wiki push failed"):
+            push_summary_to_wiki(
+                lark=fake,
+                folder_token="folder",
+                title="t",
+                markdown_body="# x",
+            )
+    assert any("raw=" in r.message for r in caplog.records)
+
+
+def test_push_summary_raises_when_ok_null(caplog):
+    import logging
+
+    fake = FakeLark(returns=[json.dumps({"ok": None, "data": {}})])
+    with caplog.at_level(logging.ERROR, logger="broadcast2summary.output_wiki"):
+        with pytest.raises(LarkCliError, match="wiki push failed"):
+            push_summary_to_wiki(
+                lark=fake,
+                folder_token="folder",
+                title="t",
+                markdown_body="# x",
+            )
+
+
+def test_push_summary_raises_when_doc_url_missing(caplog):
+    import logging
+
+    fake = FakeLark(returns=[json.dumps({"ok": True, "data": {"doc_id": "abc"}})])
+    with caplog.at_level(logging.ERROR, logger="broadcast2summary.output_wiki"):
+        with pytest.raises(LarkCliError, match="empty doc_id or doc_url"):
+            push_summary_to_wiki(
+                lark=fake,
+                folder_token="folder",
+                title="t",
+                markdown_body="# x",
+            )
 
 
 def test_push_wiki_tag_logs_warning_on_error(monkeypatch, caplog):

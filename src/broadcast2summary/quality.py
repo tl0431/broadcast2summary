@@ -2,7 +2,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 import json
+import logging
 import re
+
+from .json_repair import repair_unescaped_quotes_in_json_strings
+
+logger = logging.getLogger(__name__)
 
 
 class QualityLevel(IntEnum):
@@ -23,7 +28,11 @@ REFUSAL_RE = re.compile(
     r"(无法处理|内容不清晰|作为\s*AI|抱歉[,，]\s*我|sorry,\s*I|cannot help|不便)",
     re.IGNORECASE,
 )
-PLACEHOLDER_RE = re.compile(r"(TODO|\[[^\]]+\]|内容省略)")
+# Only explicit LLM placeholders — not arbitrary [bracketed] English in quotes/citations.
+PLACEHOLDER_RE = re.compile(
+    r"(?:TODO|内容省略|\[(?:\.\.\.|待补充|待填写|略|省略|TBD|TODO|placeholder)\])",
+    re.IGNORECASE,
+)
 GARBLE_RE = re.compile(r"(<html|&nbsp;|\\u[0-9a-fA-F]{4}|[\x00-\x08\x0b\x0e-\x1f])")
 STOPWORDS_ZH = {"的", "了", "是", "我", "我们", "这", "那", "和", "在", "也", "都"}
 
@@ -35,17 +44,16 @@ def evaluate(
     l3_enabled: bool = True,
 ) -> QualityResult:
     # ---------- L1 ----------
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return QualityResult(False, QualityLevel.L1, f"invalid json: {e}", None)
+    parsed, json_err = _parse_summary_json(raw)
+    if json_err:
+        return QualityResult(False, QualityLevel.L1, json_err, None)
 
     l1_err = _l1_checks(parsed, transcript)
     if l1_err:
         return QualityResult(False, QualityLevel.L1, l1_err, parsed)
 
     # ---------- L2 ----------
-    flat = _flatten_text(parsed)
+    flat = _flatten_text_for_l2(parsed)
     l2_err = _l2_checks(flat)
     if l2_err:
         return QualityResult(False, QualityLevel.L2, l2_err, parsed)
@@ -110,10 +118,41 @@ def _l3_check(flat: str, transcript: str) -> str | None:
     return None
 
 
+def _parse_summary_json(raw: str) -> tuple[dict | None, str | None]:
+    try:
+        return json.loads(raw), None
+    except json.JSONDecodeError as first_err:
+        repaired = repair_unescaped_quotes_in_json_strings(raw)
+        if repaired != raw:
+            try:
+                parsed = json.loads(repaired)
+                logger.info("summary JSON repaired (unescaped quotes in strings)")
+                return parsed, None
+            except json.JSONDecodeError:
+                pass
+        return None, f"invalid json: {first_err}"
+
+
 def _flatten_text(parsed: dict) -> str:
     pieces: list[str] = [str(parsed.get("tldr", ""))]
     pieces.extend(str(p) for p in parsed.get("key_points", []))
     pieces.extend(str(q) for q in parsed.get("quotes", []))
+    for c in parsed.get("chapters", []):
+        pieces.append(str(c.get("title", "")))
+        pieces.append(str(c.get("summary", "")))
+    pieces.extend(str(g) for g in parsed.get("guests", []))
+    pieces.extend(str(a) for a in parsed.get("actionable_items", []))
+    return "\n".join(pieces)
+
+
+def _flatten_text_for_l2(parsed: dict) -> str:
+    """L2 placeholder/refusal checks.
+
+    Excludes quotes: verbatim citations often contain [bracketed] English (not LLM placeholders).
+    Placeholders in tldr/key_points/chapters are still checked.
+    """
+    pieces: list[str] = [str(parsed.get("tldr", ""))]
+    pieces.extend(str(p) for p in parsed.get("key_points", []))
     for c in parsed.get("chapters", []):
         pieces.append(str(c.get("title", "")))
         pieces.append(str(c.get("summary", "")))

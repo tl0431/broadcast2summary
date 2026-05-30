@@ -3,7 +3,9 @@ from dataclasses import dataclass
 import json
 import logging
 import re
-from .lark_client import LarkClient
+from .lark_client import LarkClient, LarkCliError
+
+_RAW_LOG_MAX = 4096
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +77,38 @@ def push_summary_to_wiki(
             "--markdown", markdown_body,
         ]
     raw = lark.run(args)
-    payload = json.loads(raw)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error(
+            "wiki push: lark-cli stdout is not JSON — %s; raw=%s",
+            e,
+            raw[:_RAW_LOG_MAX],
+        )
+        raise LarkCliError(f"wiki push: invalid JSON from lark-cli: {e}") from e
+
+    if "ok" in payload and payload.get("ok") is not True:
+        err = payload.get("error") or {}
+        msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+        logger.error(
+            "wiki push: lark-cli ok=false — %s; raw=%s",
+            msg,
+            raw[:_RAW_LOG_MAX],
+        )
+        raise LarkCliError(f"wiki push failed: {msg}")
+
     data = payload.get("data") or {}
-    return WikiResult(
-        doc_token=data.get("doc_id", ""),
-        url=data.get("doc_url", ""),
-    )
+    doc_token = (data.get("doc_id") or data.get("token") or "").strip()
+    doc_url = (data.get("doc_url") or data.get("url") or "").strip()
+    if not doc_token or not doc_url:
+        logger.error(
+            "wiki push: missing doc_id/doc_url in response; raw=%s",
+            raw[:_RAW_LOG_MAX],
+        )
+        raise LarkCliError(
+            f"wiki push: empty doc_id or doc_url (doc_id={doc_token!r}, doc_url={doc_url!r})"
+        )
+    return WikiResult(doc_token=doc_token, url=doc_url)
 
 
 def _detect_wiki_tag_capability(lark) -> bool:

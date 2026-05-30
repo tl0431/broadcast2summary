@@ -74,6 +74,25 @@ def test_l2_fail_placeholder():
     assert r.level == QualityLevel.L2
 
 
+def test_l2_passes_english_bracket_citation_in_quotes():
+    bad = {
+        **GOOD,
+        "quotes": [
+            "We've 10x'd over 24 months [the top 1% exit threshold].",
+        ],
+    }
+    long_transcript = TRANSCRIPT * 5
+    r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=long_transcript, l3_enabled=False)
+    assert r.passed is True, r.reason
+
+
+def test_l2_still_fails_explicit_placeholder_bracket():
+    bad = {**GOOD, "tldr": "正文[待补充]未完" + "x" * 72}
+    r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT, l3_enabled=False)
+    assert r.passed is False
+    assert r.level == QualityLevel.L2
+
+
 def test_l3_fail_low_keyword_coverage():
     bad = {**GOOD, "tldr": "春天来临万物复苏百花盛开。夏日炎炎骄阳似火。秋风吹过落叶纷飞。冬天降临白雪皑皑。四季轮回自然更替。这是一个完整的季节循环描述。每个季节都有独特的特征和美景呈现。",
            "key_points": ["春天万物复苏百花盛开绿意盎然美丽景象令人陶醉",
