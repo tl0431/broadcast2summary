@@ -30,6 +30,18 @@ def test_align_speakers_no_overlap_returns_none():
     assert out[0].speaker_id is None
 
 
+def test_align_speakers_midpoint_fallback_when_no_overlap():
+    from broadcast2summary.diarize import SpeakerTurn, align_speakers_with_stats
+
+    # Zero-duration segment: overlap stays 0, midpoint still inside the turn.
+    segments = [Segment(start=23.0, end=23.0, text="point")]
+    turns = [SpeakerTurn(speaker_id="SPEAKER_01", start=20.0, end=25.0)]
+    out, stats = align_speakers_with_stats(segments, turns)
+    assert out[0].speaker_id == "SPEAKER_01"
+    assert stats["midpoint_matches"] == 1
+    assert stats["overlap_matches"] == 0
+
+
 def test_align_speakers_empty_turns_returns_none_speaker():
     from broadcast2summary.diarize import align_speakers
 

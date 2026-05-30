@@ -10,7 +10,15 @@ import traceback
 from .rss import Episode
 from .state import State, EpisodeRecord, FailedRecord
 from .transcribe import TranscribeBackend, transcribe_audio, TranscriptionResult, Segment
-from .diarize import diarize_audio, align_speakers, release_pipeline, SpeakerTurn
+from .diarize import diarize_audio, align_speakers_with_stats, release_pipeline, SpeakerTurn
+from .speaker_status import (
+    log_alignment_result,
+    log_cache_retained,
+    log_diarization_result,
+    merge_alignment_stats,
+    turns_summary,
+    write_speaker_status,
+)
 from .speaker_id import apply_speaker_names
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
 from .output_local import write_local_markdown, _safe_filename
@@ -85,9 +93,9 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         # ---- diarize (before transcribe so pyannote releases ~2GB before Whisper loads) ----
         turns: list = []
         if deps.diarization_enabled:
-            if turns_cache.exists():
-                turns = _load_turns(turns_cache)
-                logger.info("diarization loaded from cache for %s", ep.guid)
+            turns = _load_turns_cached(turns_cache)
+            if turns is not None:
+                log_diarization_result(guid=ep.guid, turns=turns, cache_path=turns_cache)
             else:
                 try:
                     logger.info("diarizing: [%s]", ep.guid)
@@ -99,12 +107,23 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                         clustering_threshold=deps.clustering_threshold,
                         clustering_min_cluster_size=deps.clustering_min_cluster_size,
                     )
-                    _save_turns(turns, turns_cache)
-                except Exception as _diar_exc:
-                    logger.exception(
-                        "diarization failed for %s — continuing without speaker labels",
-                        ep.guid,
+                    if turns:
+                        _save_turns(turns, turns_cache)
+                    else:
+                        turns_cache.unlink(missing_ok=True)
+                    diar_summary = log_diarization_result(
+                        guid=ep.guid, turns=turns, cache_path=turns_cache if turns else None,
                     )
+                    write_speaker_status(cache_dir, {"stage": "diarize", **diar_summary})
+                except Exception as _diar_exc:
+                    turns_cache.unlink(missing_ok=True)
+                    logger.exception(
+                        "diarization hard failure for [%s] — continuing without speaker labels; "
+                        "turns.json not written (%s)",
+                        ep.guid,
+                        _diar_exc,
+                    )
+                    turns = []
                     try:
                         if deps.lark and deps.im_target:
                             push_failure_to_im(
@@ -139,18 +158,40 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     else:
         # transcript cached — skip download/diarize/transcribe entirely
         logger.info("transcript cache hit for %s — skipping download+diarize+transcribe", ep.guid)
-        turns = _load_turns(turns_cache) if turns_cache.exists() else []
+        turns = _load_turns_cached(turns_cache) or []
         transcription = _load_transcript(transcript_cache)
+        if deps.diarization_enabled and not turns:
+            logger.warning(
+                "speaker diarization unavailable for [%s] on cache hit: turns.json missing, "
+                "empty, or corrupt (audio already deleted — cannot re-diarize)",
+                ep.guid,
+            )
 
     if cover_path is None:
         cover_path = _download_cover(ep, show_dir)
 
     # ---- align speakers ----
-    if turns:
-        aligned_segs = align_speakers(transcription.segments, turns)
+    turns_for_align = turns if turns else []
+    if deps.diarization_enabled and turns_for_align:
+        aligned_segs, match_stats = align_speakers_with_stats(
+            transcription.segments, turns_for_align,
+        )
         transcription = TranscriptionResult(
             language=transcription.language,
             segments=aligned_segs,
+        )
+        align_status = merge_alignment_stats(
+            turns_info=turns_summary(turns_for_align),
+            match_stats=match_stats,
+            segment_count=len(transcription.segments),
+        )
+        log_alignment_result(guid=ep.guid, status=align_status)
+        write_speaker_status(cache_dir, {"stage": "align", **align_status})
+        _save_transcript(transcription, transcript_cache)
+    elif deps.diarization_enabled and not turns_for_align:
+        logger.warning(
+            "speaker alignment skipped for [%s]: no diarization turns",
+            ep.guid,
         )
 
     # ---- summarize ----
@@ -159,6 +200,10 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
     chunked = "".join(transcription.chunked_for_summary())
     logger.info("transcript for summarize: %d chars for %s", len(chunked), ep.guid)
     duration_min = max(1, ep.duration_seconds // 60)
+    effective_lang = (transcription.language or ep.language or "zh").lower()
+    l3_enabled = deps.l3_enabled and effective_lang != "en"
+    if deps.l3_enabled and not l3_enabled:
+        logger.info("L3 keyword check disabled for English episode %s", ep.guid)
     try:
         summary = summarize(
             show_name=ep.feed_name, episode_title=ep.title,
@@ -166,7 +211,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             transcript_with_timestamps=chunked,
             guests_hint=None,
             transcript_full=transcript_full,
-            l3_enabled=deps.l3_enabled,
+            l3_enabled=l3_enabled,
             deepseek=deps.deepseek, claude=deps.claude, stubs=deps.summarize_stubs,
             include_speaker_names=deps.diarization_enabled,
             shownotes=ep.shownotes,
@@ -177,8 +222,8 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
             debug_dir=cache_dir / "raw_debug",
         )
     except SummarizeFailure as e:
-        # cache preserved — retry will skip diarize+transcribe
-        logger.warning("summarize failed for %s — %s — transcript cached for retry", ep.guid, e)
+        log_cache_retained(guid=ep.guid, cache_dir=cache_dir, stage="summarize")
+        logger.warning("summarize failed for [%s] — %s", ep.guid, e)
         return _record_failure(deps, ep, "summarize", e, now, mp3_path=None)
 
     # ---- translate (en only; failure = skip translation, continue) ----
@@ -288,7 +333,7 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
 
     # ---- clean up cache and record success only when health check fully passed ----
     if not healthy:
-        # Cache preserved for retry; return failure so episode re-enters failed_queue.
+        log_cache_retained(guid=ep.guid, cache_dir=cache_dir, stage="health_check")
         return _record_failure(
             deps, ep, "health_check",
             RuntimeError("health_check issues remain after auto-repair"),
@@ -351,6 +396,24 @@ def _save_turns(turns: list[SpeakerTurn], path: Path) -> None:
 def _load_turns(path: Path) -> list[SpeakerTurn]:
     data = json.loads(path.read_text(encoding="utf-8"))
     return [SpeakerTurn(**d) for d in data]
+
+
+def _load_turns_cached(path: Path) -> list[SpeakerTurn] | None:
+    """Return turns from cache, or None if missing / empty / unreadable."""
+    if not path.exists():
+        return None
+    try:
+        turns = _load_turns(path)
+    except (json.JSONDecodeError, TypeError, KeyError) as exc:
+        logger.warning("turns.json unreadable at %s — %s", path, exc)
+        return None
+    if not turns:
+        logger.warning(
+            "turns.json exists but contains 0 turns at %s — treated as cache miss",
+            path,
+        )
+        return None
+    return turns
 
 
 def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,

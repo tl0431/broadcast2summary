@@ -127,29 +127,91 @@ def diarize_audio(
             start=segment.start,
             end=segment.end,
         ))
+    if not turns:
+        log.warning(
+            "diarization pipeline finished but produced 0 speaker turns for %s",
+            audio_path.name,
+        )
+    else:
+        speakers = {t.speaker_id for t in turns}
+        log.info(
+            "diarization produced %d turns, %d speaker(s) for %s",
+            len(turns), len(speakers), audio_path.name,
+        )
     return turns
+
+
+def _turn_at_midpoint(turns: list[SpeakerTurn], midpoint: float) -> SpeakerTurn | None:
+    for turn in turns:
+        if turn.start <= midpoint <= turn.end:
+            return turn
+    return None
 
 
 def align_speakers(
     segments: list[Segment], turns: list[SpeakerTurn]
 ) -> list[Segment]:
-    result = []
+    aligned, _ = align_speakers_with_stats(segments, turns)
+    return aligned
+
+
+def align_speakers_with_stats(
+    segments: list[Segment], turns: list[SpeakerTurn]
+) -> tuple[list[Segment], dict]:
+    """Assign speaker_id by max time overlap, then segment-midpoint fallback."""
+    if not turns:
+        return segments, {
+            "overlap_matches": 0,
+            "midpoint_matches": 0,
+            "unassigned": len(segments),
+            "labeled_count": 0,
+        }
+
+    result: list[Segment] = []
+    overlap_matches = 0
+    midpoint_matches = 0
+    unassigned = 0
+
     for seg in segments:
-        best = None
+        best: SpeakerTurn | None = None
         best_overlap = 0.0
         for turn in turns:
             overlap = min(seg.end, turn.end) - max(seg.start, turn.start)
             if overlap > best_overlap:
                 best_overlap = overlap
                 best = turn
+
+        method = "overlap"
+        if best is None:
+            midpoint = (seg.start + seg.end) / 2.0
+            best = _turn_at_midpoint(turns, midpoint)
+            method = "midpoint" if best else "none"
+
+        if best is None:
+            unassigned += 1
+            speaker_id = None
+        else:
+            speaker_id = best.speaker_id
+            if method == "overlap":
+                overlap_matches += 1
+            else:
+                midpoint_matches += 1
+
         result.append(
             Segment(
                 start=seg.start,
                 end=seg.end,
                 text=seg.text,
                 translation=seg.translation,
-                speaker_id=best.speaker_id if best else None,
+                speaker_id=speaker_id,
                 speaker_name=seg.speaker_name,
             )
         )
-    return result
+
+    labeled_count = overlap_matches + midpoint_matches
+    return result, {
+        "overlap_matches": overlap_matches,
+        "midpoint_matches": midpoint_matches,
+        "unassigned": unassigned,
+        "labeled_count": labeled_count,
+    }

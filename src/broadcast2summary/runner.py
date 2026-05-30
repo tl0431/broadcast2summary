@@ -157,8 +157,17 @@ def _recover_stale_caches(*, cache_root: Path, state: State) -> None:
                 continue
             try:
                 json.loads(fpath.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, ValueError):
-                logger.warning("corrupt cache file deleted (SIGKILL recovery): %s", fpath)
+            except (json.JSONDecodeError, ValueError) as exc:
+                sibling = "transcript.json" if fname == "turns.json" else "turns.json"
+                has_sibling = (guid_dir / sibling).exists()
+                logger.warning(
+                    "corrupt cache file deleted (SIGKILL recovery): %s — parse error: %s; "
+                    "episode %s will %s",
+                    fpath,
+                    exc,
+                    guid_dir.name,
+                    "lose speaker repair capability" if fname == "turns.json" and has_sibling else "retry transcribe/diarize",
+                )
                 fpath.unlink(missing_ok=True)
 
 

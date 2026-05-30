@@ -348,16 +348,22 @@ def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, 
 
     def fake_align(segments, turns):
         align_called.append((segments, turns))
-        return [
+        aligned = [
             Segment(
                 start=s.start, end=s.end, text=s.text,
                 speaker_id="SPEAKER_00",
             )
             for s in segments
         ]
+        return aligned, {
+            "overlap_matches": len(aligned),
+            "midpoint_matches": 0,
+            "unassigned": 0,
+            "labeled_count": len(aligned),
+        }
 
     monkeypatch.setattr("broadcast2summary.pipeline.diarize_audio", fake_diarize)
-    monkeypatch.setattr("broadcast2summary.pipeline.align_speakers", fake_align)
+    monkeypatch.setattr("broadcast2summary.pipeline.align_speakers_with_stats", fake_align)
 
     state = State(tmp_path / "s.db")
     state.init_schema()

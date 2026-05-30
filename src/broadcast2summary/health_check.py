@@ -22,7 +22,13 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .diarize import align_speakers
+from .diarize import align_speakers_with_stats
+from .speaker_status import (
+    diagnose_alignment_failure,
+    log_alignment_result,
+    merge_alignment_stats,
+    turns_summary,
+)
 from .output_local import render_markdown, write_local_markdown
 from .speaker_id import apply_speaker_names
 from .transcribe import Segment, TranscriptionResult
@@ -134,7 +140,8 @@ def _check(local_path: Path, *, language: str, cache_dir: Path) -> list[str]:
                 issues.append("translation_partial")
 
         turns_cache = cache_dir / "turns.json"
-        if ts_lines and turns_cache.exists():
+        # English episodes: translation check above; speaker labels optional (timestamp-only OK).
+        if language != "en" and ts_lines and turns_cache.exists():
             try:
                 turns = json.loads(turns_cache.read_text(encoding="utf-8"))
             except Exception:
@@ -280,9 +287,27 @@ def _repair_speaker_labels(
     from .diarize import SpeakerTurn
     turns_data = json.loads(turns_cache.read_text(encoding="utf-8"))
     turns = [SpeakerTurn(**d) for d in turns_data]
+    if not turns:
+        logger.warning(
+            "cannot repair speaker labels for %s — turns.json has 0 turns",
+            local_path.name,
+        )
+        return
     segs = _load_segments(transcript_cache)
 
-    aligned = align_speakers(segs, turns)
+    aligned, match_stats = align_speakers_with_stats(segs, turns)
+    align_status = merge_alignment_stats(
+        turns_info=turns_summary(turns),
+        match_stats=match_stats,
+        segment_count=len(segs),
+    )
+    log_alignment_result(guid=local_path.stem, status=align_status)
+    if diagnose_alignment_failure(align_status) != "ok":
+        logger.warning(
+            "speaker label repair for %s may remain incomplete: %s",
+            local_path.name,
+            diagnose_alignment_failure(align_status),
+        )
     speaker_names = summary_parsed.get("speaker_names") or {}
     named = apply_speaker_names(aligned, speaker_names)
 
