@@ -1,5 +1,9 @@
 from __future__ import annotations
+import logging
+
 from .lark_client import LarkClient
+
+logger = logging.getLogger(__name__)
 
 
 def push_summary_to_im(
@@ -13,9 +17,11 @@ def push_summary_to_im(
     subtitle: str = "",
 ) -> None:
     if not target_open_id:
+        logger.debug("IM push skipped — no target_open_id configured")
         return
     text = _build_text(show_name, episode_title, summary, wiki_doc_url, subtitle=subtitle)
     lark.run(["im", "+messages-send", "--as", "bot", "--user-id", target_open_id, "--markdown", text])
+    logger.info("IM push ok — %s / %s", show_name, episode_title)
 
 
 def push_failure_to_im(

@@ -20,6 +20,8 @@ from .speaker_status import (
     write_speaker_status,
 )
 from .speaker_id import apply_speaker_names
+from .speaker_merge import merge_duplicate_named_speakers
+from .config import resolve_diarize_params
 from .summarize import summarize, SummarizeStubs, SummarizeFailure, LLMClient, ModelChoice
 from .output_local import write_local_markdown, _safe_filename
 from .output_im import push_summary_to_im, push_failure_to_im
@@ -49,10 +51,6 @@ class PipelineDeps:
     claude: LLMClient | None = None
     summarize_stubs: SummarizeStubs | None = None
     diarization_enabled: bool = True
-    max_speakers: int = 6
-    min_speakers: int = 1
-    clustering_threshold: float = 0.65
-    clustering_min_cluster_size: int = 6
 
 
 @dataclass(frozen=True)
@@ -100,13 +98,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 try:
                     logger.info("diarizing: [%s]", ep.guid)
                     _assert_memory_available(required_gb=1.7, stage="diarization")
-                    turns = diarize_audio(
-                        audio_path,
-                        max_speakers=deps.max_speakers,
-                        min_speakers=deps.min_speakers,
-                        clustering_threshold=deps.clustering_threshold,
-                        clustering_min_cluster_size=deps.clustering_min_cluster_size,
+                    diar_params = resolve_diarize_params(
+                        ep.language,
+                        override_threshold=ep.clustering_threshold_override,
                     )
+                    turns = diarize_audio(audio_path, **diar_params)
                     if turns:
                         _save_turns(turns, turns_cache)
                     else:
@@ -251,6 +247,17 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
 
     if deps.diarization_enabled:
         speaker_names = summary.parsed.get("speaker_names") or {}
+        translated_segments, merge_report = merge_duplicate_named_speakers(
+            translated_segments, speaker_names,
+        )
+        if merge_report.merged_pairs:
+            logger.info(
+                "phantom speakers merged for [%s]: %d → %d clusters; pairs=%s",
+                ep.guid,
+                merge_report.clusters_before,
+                merge_report.clusters_after,
+                merge_report.merged_pairs,
+            )
         translated_segments = apply_speaker_names(translated_segments, speaker_names)
 
     # ---- local markdown (core artifact — failure = episode failed) ----
@@ -328,6 +335,8 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 summary=summary.parsed, wiki_doc_url=wiki_url,
                 subtitle=ep.subtitle,
             )
+        elif deps.lark:
+            logger.debug("IM push skipped for %s — no im_target configured", ep.guid)
     except Exception:
         logger.exception("IM push failed for %s — continuing", ep.guid)
 
@@ -431,8 +440,11 @@ def _record_failure(deps: PipelineDeps, ep: Episode, stage: str, exc: Exception,
                 feed_name=ep.feed_name, episode_title=ep.title,
                 stage=stage, error=err_text,
             )
+            logger.info("IM failure notification sent for %s", ep.guid)
+        elif deps.lark:
+            logger.debug("IM failure notification skipped for %s — no im_target", ep.guid)
     except Exception:
-        pass
+        logger.warning("IM failure notification failed for %s — continuing", ep.guid)
     return EpisodeResult(
         guid=ep.guid, success=False, failed_stage=stage, error=err_text,
         model_used=None, quality_level=None, local_path=None, wiki_token=None,
