@@ -21,7 +21,7 @@
   - 飞书知识库——按节目节点直接创建子文档
   - 飞书 IM 推送（附知识库链接）
 - **下载**：自动重试（最多 3 次，指数退避）+ 跨次运行断点续传
-- **定时任务**：macOS launchd（每天 23:00，`caffeinate` 防止睡眠中断下载）
+- **定时任务**：macOS launchd（每天 23:00 先跑 `run`、再自动 `retry-failed` 重试昨晚失败集；`caffeinate` 防止睡眠中断下载）
 - **低成本模式**：`--cheap` 切换到小模型，适合开发调试
 
 ---
@@ -167,6 +167,8 @@ bash scripts/uninstall_launchd.sh        # 卸载
 ```
 
 launchd 任务通过 `caffeinate -dims` 运行，防止 macOS 在长时间 diarization/转写期间休眠（-dims：显示器、空闲、磁盘、系统休眠）。
+
+每次触发先执行 `python -m broadcast2summary run`，无论成功失败都接着跑 `python -m broadcast2summary retry-failed`，因此前一晚进入 `failed_queue` 的失败集会在第二天自动获得一次重试机会。
 
 日志：`~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 

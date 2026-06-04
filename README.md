@@ -21,7 +21,7 @@ A local-first podcast pipeline that subscribes to feeds, transcribes episodes on
   - Lark (Feishu) wiki knowledge base — creates docs directly under per-feed wiki nodes
   - Lark IM push notification with wiki link
 - **Download**: automatic retry (3 attempts, exponential backoff) + resumable downloads across runs
-- **Scheduling**: macOS launchd (daily at 23:00, `caffeinate` prevents sleep during runs)
+- **Scheduling**: macOS launchd (daily at 23:00, runs `run` followed by `retry-failed` so previous-day failures auto-recover; `caffeinate` prevents sleep during runs)
 - **Cheap mode**: swap to smaller models for fast iteration
 
 ---
@@ -166,6 +166,8 @@ bash scripts/uninstall_launchd.sh        # remove
 ```
 
 The launchd job runs under `caffeinate -dims` to prevent macOS from sleeping during long diarization or transcription runs (`-d` display, `-i` idle, `-m` disk, `-s` system sleep on AC).
+
+Each invocation runs `python -m broadcast2summary run` followed unconditionally by `python -m broadcast2summary retry-failed`, so episodes that landed in `failed_queue` the previous night get a fresh attempt automatically.
 
 Logs: `~/Knowledge/broadcast/logs/launchd.out` / `launchd.err`
 

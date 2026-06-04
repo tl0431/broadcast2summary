@@ -27,7 +27,7 @@ cat > "$PLIST" <<EOF
         <string>-dims</string>
         <string>/bin/bash</string>
         <string>-lc</string>
-        <string>source ~/.bashrc_claude &amp;&amp; cd ${REPO_DIR_XML} &amp;&amp; source .venv/bin/activate &amp;&amp; python -m broadcast2summary run</string>
+        <string>source ~/.bashrc_claude &amp;&amp; cd ${REPO_DIR_XML} &amp;&amp; source .venv/bin/activate &amp;&amp; python -m broadcast2summary run; python -m broadcast2summary retry-failed</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
