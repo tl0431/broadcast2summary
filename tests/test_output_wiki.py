@@ -15,13 +15,15 @@ class FakeLark:
         return self.returns.pop(0)
 
 
-def test_push_summary_uses_docs_create_with_folder_token():
+def test_push_summary_uses_docs_create_v2_with_parent_token():
     fake = FakeLark(returns=[
         json.dumps({
             "ok": True,
             "data": {
-                "doc_id": "doc_token_xyz",
-                "doc_url": "https://lark.feishu.cn/docx/doc_token_xyz",
+                "document": {
+                    "document_id": "doc_token_xyz",
+                    "url": "https://lark.feishu.cn/docx/doc_token_xyz",
+                },
             },
         }),
     ])
@@ -38,15 +40,13 @@ def test_push_summary_uses_docs_create_with_folder_token():
     assert len(fake.calls) == 1
     args = fake.calls[0]
     assert args[:2] == ["--as", "user"]
-    assert args[2:4] == ["docs", "+create"]
-    assert "--folder-token" in args
-    ft_idx = args.index("--folder-token")
-    assert args[ft_idx + 1] == "JeezfEraLlyIZMdwAqdc9Zx5n0h"
-    assert "--title" in args
-    t_idx = args.index("--title")
-    assert args[t_idx + 1] == "2026-05-13 测试期"
-    assert "--markdown" in args
-    md_idx = args.index("--markdown")
+    assert args[2:5] == ["docs", "+create", "--api-version"]
+    assert args[5] == "v2"
+    assert "--parent-token" in args
+    pt_idx = args.index("--parent-token")
+    assert args[pt_idx + 1] == "JeezfEraLlyIZMdwAqdc9Zx5n0h"
+    assert "--content" in args
+    md_idx = args.index("--content")
     assert args[md_idx + 1] == body
 
 
@@ -163,7 +163,7 @@ def test_push_summary_raises_when_ok_null(caplog):
 def test_push_summary_raises_when_doc_url_missing(caplog):
     import logging
 
-    fake = FakeLark(returns=[json.dumps({"ok": True, "data": {"doc_id": "abc"}})])
+    fake = FakeLark(returns=[json.dumps({"ok": True, "data": {"document": {"document_id": "abc"}}})])
     with caplog.at_level(logging.ERROR, logger="broadcast2summary.output_wiki"):
         with pytest.raises(LarkCliError, match="empty doc_id or doc_url"):
             push_summary_to_wiki(
@@ -190,3 +190,34 @@ def test_push_wiki_tag_logs_warning_on_error(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="broadcast2summary.output_wiki"):
         push_wiki_tags(lark=FakeLark(), doc_token="t", tags=("AI",))
     assert any("wiki tag push failed" in r.message.lower() for r in caplog.records)
+
+
+def test_push_summary_polls_v1_async_task(monkeypatch):
+    running = json.dumps({
+        "ok": True,
+        "data": {
+            "status": "running",
+            "task_id": "task-abc",
+            "estimated_time": "0-1s",
+        },
+    })
+    done = json.dumps({
+        "ok": True,
+        "data": {
+            "doc_id": "doc_async",
+            "doc_url": "https://lark.feishu.cn/docx/doc_async",
+        },
+    })
+    fake = FakeLark(returns=[running, done])
+    monkeypatch.setattr("broadcast2summary.output_wiki.time.sleep", lambda _: None)
+
+    result = push_summary_to_wiki(
+        lark=fake,
+        folder_token="folder",
+        title="t",
+        markdown_body="# x",
+        wiki_node_token="wikcn_node",
+    )
+    assert result.doc_token == "doc_async"
+    assert len(fake.calls) == 2
+    assert fake.calls[1][-2] == "--markdown"

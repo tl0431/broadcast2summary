@@ -252,7 +252,6 @@ def test_pipeline_real_sv101_episode_metadata(tmp_path, fixtures_dir, monkeypatc
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
         diarization_enabled=False,
-        max_speakers=2,
     )
 
     cover_written: list[Path] = []

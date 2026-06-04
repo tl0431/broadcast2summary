@@ -65,7 +65,7 @@ def test_diarize_audio_returns_empty_when_pipeline_finds_nothing(monkeypatch, tm
         def instantiate(self, params):
             pass
 
-        def __call__(self, audio_dict, max_speakers=6, min_speakers=1, hook=None):
+        def __call__(self, audio_dict, hook=None):
             return FakeDiarizeOutput()
 
     monkeypatch.setattr("broadcast2summary.diarize._load_pipeline",
@@ -150,7 +150,7 @@ def test_diarize_audio_logs_progress(monkeypatch, tmp_path, caplog):
         def instantiate(self, params):
             pass
 
-        def __call__(self, audio_dict, max_speakers=6, min_speakers=1, hook=None):
+        def __call__(self, audio_dict, hook=None):
             # Simulate pyannote progress callbacks
             if hook is not None:
                 hook("segmentation", None, file=None, total=10, completed=5)

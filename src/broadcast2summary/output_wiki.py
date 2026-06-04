@@ -3,9 +3,12 @@ from dataclasses import dataclass
 import json
 import logging
 import re
+import time
 from .lark_client import LarkClient, LarkCliError
 
 _RAW_LOG_MAX = 4096
+_WIKI_POLL_INTERVAL = 3.0
+_WIKI_POLL_MAX_WAIT = 120.0
 
 logger = logging.getLogger(__name__)
 
@@ -48,34 +51,43 @@ class WikiResult:
     url: str
 
 
-def push_summary_to_wiki(
-    *,
-    lark: LarkClient,
-    folder_token: str | None,
-    title: str,
-    markdown_body: str,
-    wiki_node_token: str | None = None,
-) -> WikiResult:
-    """Create a Lark doc in a wiki node (preferred) or cloud drive folder.
+def _parse_estimated_seconds(estimated: str) -> float:
+    """Parse values like '5-15s' → initial wait before first poll."""
+    nums = re.findall(r"\d+", estimated or "")
+    if not nums:
+        return 5.0
+    return float(nums[0])
 
-    When wiki_node_token is provided, creates directly under that wiki node
-    via `docs +create --wiki-node`. Otherwise falls back to --folder-token.
-    """
-    if wiki_node_token:
-        args = [
-            "docs", "+create",
-            "--wiki-node", wiki_node_token,
-            "--title", title,
-            "--markdown", markdown_body,
-        ]
-    else:
-        args = [
-            "--as", "user",
-            "docs", "+create",
-            "--folder-token", folder_token or "",
-            "--title", title,
-            "--markdown", markdown_body,
-        ]
+
+def _extract_wiki_result(payload: dict) -> WikiResult | None:
+    """Return WikiResult when doc is ready; None when async task is still running."""
+    data = payload.get("data") or {}
+
+    status = (data.get("status") or "").lower()
+    task_id = (data.get("task_id") or "").strip()
+    if status == "running" and task_id:
+        return None
+
+    doc = data.get("document") or {}
+    doc_token = (
+        data.get("doc_id")
+        or data.get("token")
+        or doc.get("document_id")
+        or doc.get("token")
+        or ""
+    ).strip()
+    doc_url = (
+        data.get("doc_url")
+        or data.get("url")
+        or doc.get("url")
+        or ""
+    ).strip()
+    if doc_token and doc_url:
+        return WikiResult(doc_token=doc_token, url=doc_url)
+    return None
+
+
+def _run_create(lark: LarkClient, args: list[str]) -> dict:
     raw = lark.run(args)
     try:
         payload = json.loads(raw)
@@ -96,19 +108,128 @@ def push_summary_to_wiki(
             raw[:_RAW_LOG_MAX],
         )
         raise LarkCliError(f"wiki push failed: {msg}")
+    return payload
+
+
+def _build_create_args(
+    *,
+    folder_token: str | None,
+    title: str,
+    markdown_body: str,
+    wiki_node_token: str | None,
+    use_v2: bool,
+) -> list[str]:
+    parent = (wiki_node_token or folder_token or "").strip()
+    if use_v2:
+        args = [
+            "docs", "+create",
+            "--api-version", "v2",
+            "--doc-format", "markdown",
+            "--content", markdown_body,
+        ]
+        if not wiki_node_token:
+            args[:0] = ["--as", "user"]
+        if parent:
+            args.extend(["--parent-token", parent])
+        return args
+
+    if wiki_node_token:
+        return [
+            "docs", "+create",
+            "--wiki-node", wiki_node_token,
+            "--title", title,
+            "--markdown", markdown_body,
+        ]
+    return [
+        "--as", "user",
+        "docs", "+create",
+        "--folder-token", folder_token or "",
+        "--title", title,
+        "--markdown", markdown_body,
+    ]
+
+
+def _poll_v1_create_task(
+    lark: LarkClient,
+    *,
+    create_args: list[str],
+    task_id: str,
+    estimated_time: str,
+) -> WikiResult:
+    """Poll legacy v1 MCP create-doc async tasks until doc_url is available."""
+    initial_wait = _parse_estimated_seconds(estimated_time)
+    logger.info(
+        "wiki push: async task %s — waiting %.0fs then polling up to %.0fs",
+        task_id, initial_wait, _WIKI_POLL_MAX_WAIT,
+    )
+    time.sleep(initial_wait)
+
+    deadline = time.monotonic() + _WIKI_POLL_MAX_WAIT
+    poll_args = list(create_args)
+    # Re-issue the same create call; MCP returns the finished doc once ready.
+    while time.monotonic() < deadline:
+        payload = _run_create(lark, poll_args)
+        result = _extract_wiki_result(payload)
+        if result is not None:
+            return result
+        data = payload.get("data") or {}
+        if (data.get("task_id") or "").strip() != task_id:
+            break
+        time.sleep(_WIKI_POLL_INTERVAL)
+
+    raise LarkCliError(
+        f"wiki push: async task {task_id} did not complete within {_WIKI_POLL_MAX_WAIT:.0f}s"
+    )
+
+
+def push_summary_to_wiki(
+    *,
+    lark: LarkClient,
+    folder_token: str | None,
+    title: str,
+    markdown_body: str,
+    wiki_node_token: str | None = None,
+) -> WikiResult:
+    """Create a Lark doc in a wiki node (preferred) or cloud drive folder.
+
+    Uses docs v2 OpenAPI (synchronous) when available; falls back to v1 MCP
+    with async task polling when the response status is ``running``.
+    """
+    create_args = _build_create_args(
+        folder_token=folder_token,
+        title=title,
+        markdown_body=markdown_body,
+        wiki_node_token=wiki_node_token,
+        use_v2=True,
+    )
+    payload = _run_create(lark, create_args)
+
+    result = _extract_wiki_result(payload)
+    if result is not None:
+        return result
 
     data = payload.get("data") or {}
-    doc_token = (data.get("doc_id") or data.get("token") or "").strip()
-    doc_url = (data.get("doc_url") or data.get("url") or "").strip()
-    if not doc_token or not doc_url:
-        logger.error(
-            "wiki push: missing doc_id/doc_url in response; raw=%s",
-            raw[:_RAW_LOG_MAX],
+    task_id = (data.get("task_id") or "").strip()
+    if task_id:
+        v1_args = _build_create_args(
+            folder_token=folder_token,
+            title=title,
+            markdown_body=markdown_body,
+            wiki_node_token=wiki_node_token,
+            use_v2=False,
         )
-        raise LarkCliError(
-            f"wiki push: empty doc_id or doc_url (doc_id={doc_token!r}, doc_url={doc_url!r})"
+        return _poll_v1_create_task(
+            lark,
+            create_args=v1_args,
+            task_id=task_id,
+            estimated_time=str(data.get("estimated_time") or "5-15s"),
         )
-    return WikiResult(doc_token=doc_token, url=doc_url)
+
+    logger.error(
+        "wiki push: missing doc_id/doc_url in response; raw=%s",
+        json.dumps(payload, ensure_ascii=False)[:_RAW_LOG_MAX],
+    )
+    raise LarkCliError("wiki push: empty doc_id or doc_url in create response")
 
 
 def _detect_wiki_tag_capability(lark) -> bool:

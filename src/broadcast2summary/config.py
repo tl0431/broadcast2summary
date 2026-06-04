@@ -25,10 +25,27 @@ class TranscribeConfig:
     convert_traditional: bool = True
     min_avail_gb_per_worker: float = 1.5
     diarization: bool = True
-    max_speakers: int = 6
-    min_speakers: int = 1
-    clustering_threshold: float = 0.65
-    clustering_min_cluster_size: int = 6
+
+
+# Per-language clustering presets for pyannote 3.1 speaker-diarization.
+# Higher threshold = more aggressive merging = fewer clusters.
+# en uses slightly higher threshold than zh because English broadcast speech
+# has more intra-speaker acoustic variation (emotion, pace, mic switching).
+_LANGUAGE_PRESETS = {
+    "zh": {"clustering_threshold": 0.70, "clustering_min_cluster_size": 8},
+    "en": {"clustering_threshold": 0.72, "clustering_min_cluster_size": 8},
+}
+
+
+def resolve_diarize_params(
+    language: str, *, override_threshold: float | None = None
+) -> dict:
+    """Return {clustering_threshold, clustering_min_cluster_size} for an episode."""
+    preset = _LANGUAGE_PRESETS.get((language or "zh").lower(), _LANGUAGE_PRESETS["zh"])
+    params = dict(preset)
+    if override_threshold is not None:
+        params["clustering_threshold"] = float(override_threshold)
+    return params
 
 
 @dataclass(frozen=True)
@@ -46,6 +63,7 @@ class FeedConfig:
     language: Language
     enabled: bool = True
     wiki_node_token: str | None = None
+    clustering_threshold: float | None = None  # per-feed override (edge case)
 
 
 @dataclass(frozen=True)
@@ -164,18 +182,12 @@ def load_config(
             float(transcribe_raw.get("min_avail_gb_per_worker", 1.5)),
         ),
         diarization=bool(transcribe_raw.get("diarization", True)),
-        max_speakers=_int_env(
-            "B2S_TRANSCRIBE_MAX_SPEAKERS",
-            int(transcribe_raw.get("max_speakers", 6)),
-        ),
-        min_speakers=int(transcribe_raw.get("min_speakers", 1)),
-        clustering_threshold=float(transcribe_raw.get("clustering_threshold", 0.65)),
-        clustering_min_cluster_size=int(transcribe_raw.get("clustering_min_cluster_size", 6)),
     )
 
     feeds_raw = raw.get("feeds") or []
     feeds: list[FeedConfig] = []
     for f in feeds_raw:
+        ct_raw = f.get("clustering_threshold")
         feeds.append(
             FeedConfig(
                 name=f["name"],
@@ -184,6 +196,7 @@ def load_config(
                 language=f.get("language", defaults.language_hint),
                 enabled=bool(f.get("enabled", True)),
                 wiki_node_token=f.get("wiki_node_token"),
+                clustering_threshold=float(ct_raw) if ct_raw is not None else None,
             )
         )
 

@@ -7,23 +7,41 @@ logger = logging.getLogger(__name__)
 
 _NUMBERED_RE = re.compile(r'^(\d+)[.、]\s*(.+)', re.MULTILINE)
 
-
-def _parse_numbered(raw: str, expected: int) -> list[str]:
-    """Parse '1. text\\n2. text\\n...' format; returns list of length `expected`."""
-    result: dict[int, str] = {}
-    for m in _NUMBERED_RE.finditer(raw):
-        idx = int(m.group(1))
-        if 1 <= idx <= expected:
-            result[idx] = m.group(2).strip()
-    return [result.get(i + 1, "") for i in range(expected)]
-
-
 _BATCH_SIZE = 30
 _BATCH_RETRIES = 2
 
 # Hard guarantee: 30 items × 300 chars × 0.7 (en→zh ratio) / 2.0 (zh chars/token, DeepSeek V3)
 # = 3150 output tokens < 4096 default DeepSeek max_tokens.
 MAX_CHARS_PER_ITEM = 300
+
+
+def _parse_numbered(raw: str, expected: int) -> list[str]:
+    """Parse '1. text\\n2. text\\n...' format; returns list of length `expected`.
+
+    When numbered indices are missing or duplicated, falls back to sequential
+    line order (still stripping optional leading numbers).
+    """
+    by_number: dict[int, str] = {}
+    for m in _NUMBERED_RE.finditer(raw):
+        idx = int(m.group(1))
+        if 1 <= idx <= expected:
+            by_number[idx] = m.group(2).strip()
+    numbered = [by_number.get(i + 1, "") for i in range(expected)]
+    if all(numbered):
+        return numbered
+
+    sequential: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = _NUMBERED_RE.match(line)
+        sequential.append(m.group(2).strip() if m else line)
+
+    if len(sequential) == expected:
+        return sequential
+
+    return numbered
 
 
 def _group_by_speaker(segments: list[Segment], gap_threshold: float = 5.0) -> list[list[Segment]]:
@@ -54,59 +72,34 @@ def _group_by_speaker(segments: list[Segment], gap_threshold: float = 5.0) -> li
 
 
 def _build_translation_batches(segments: list[Segment]) -> list[list[Segment]]:
-    """Pack segments into translation-batch items using a char counter.
+    """One ASR segment per translation item (1:1 with render blocks).
 
-    Single-pass algorithm: flushes the current batch item and starts a new one when:
-      1. The next segment belongs to a different speaker (speaker_id or speaker_name), OR
-      2. Adding the next segment would exceed MAX_CHARS_PER_ITEM chars.
-
-    Anonymous segments (both speaker_id=None and speaker_name=None) always flush —
-    they never merge with adjacent segments, preserving per-segment translation.
-
-    Hard guarantees:
-    - No cross-speaker content in any single batch item.
-    - No mid-segment split (flush only at segment boundaries).
-    - Each item's text ≤ MAX_CHARS_PER_ITEM chars (lone oversized segments get own item).
-    - With BATCH_SIZE=30 and MAX_CHARS_PER_ITEM=300: output ≤ 3150 tokens < 4096.
+    Keeps API batching at the call layer (_BATCH_SIZE) but never merges multiple
+    segments into a single translation — avoids misalignment when markdown render
+    groups segments differently from the translation batch.
     """
-    if not segments:
-        return []
+    return [[seg] for seg in segments]
 
-    batches: list[list[Segment]] = []
-    current: list[Segment] = []
-    current_chars = 0
 
-    for seg in segments:
-        seg_chars = len(seg.text)
-
-        if current:
-            prev = current[-1]
-            is_anonymous = not (seg.speaker_id or seg.speaker_name)
-            speaker_changed = (
-                is_anonymous
-                or (seg.speaker_name or seg.speaker_id) != (prev.speaker_name or prev.speaker_id)
-            )
-            would_overflow = current_chars + seg_chars > MAX_CHARS_PER_ITEM
-
-            if speaker_changed or would_overflow:
-                batches.append(current)
-                current = []
-                current_chars = 0
-
-        current.append(seg)
-        current_chars += seg_chars + 1  # +1 for space joining texts
-
-    if current:
-        batches.append(current)
-    return batches
+def _translate_one(text: str, deepseek_client) -> str:
+    prompt = (
+        "将以下英文播客片段翻译成中文。\n"
+        "只输出译文，不要序号或其他内容：\n\n"
+        + text
+    )
+    raw = deepseek_client.complete(prompt, temperature=0.1).strip()
+    if not raw:
+        return ""
+    m = _NUMBERED_RE.match(raw)
+    return m.group(2).strip() if m else raw
 
 
 def _translate_batch(texts: list[str], deepseek_client) -> list[str]:
     """Send one batch of ≤_BATCH_SIZE texts and return translated list.
 
     Retries up to _BATCH_RETRIES times when DeepSeek truncates the response
-    (parsed item count < requested count). Returns best-effort result after
-    exhausting retries.
+    (parsed item count < requested count). Missing items are filled via
+    single-segment retry. Returns best-effort result after exhausting retries.
     """
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     prompt = (
@@ -120,33 +113,43 @@ def _translate_batch(texts: list[str], deepseek_client) -> list[str]:
         parsed = _parse_numbered(raw, len(texts))
         missing = sum(1 for p in parsed if not p)
         if missing == 0:
-            return parsed
+            break
         if attempt < _BATCH_RETRIES:
             logger.warning(
                 "translation batch: %d/%d items missing — retry %d/%d",
                 missing, len(texts), attempt + 1, _BATCH_RETRIES,
             )
-    logger.error(
-        "translation batch: %d/%d items still missing after %d retries",
-        sum(1 for p in parsed if not p), len(texts), _BATCH_RETRIES,
-    )
+    else:
+        logger.error(
+            "translation batch: %d/%d items still missing after %d retries",
+            sum(1 for p in parsed if not p), len(texts), _BATCH_RETRIES,
+        )
+
+    for i, (text, translation) in enumerate(zip(texts, parsed)):
+        if translation or not text.strip():
+            continue
+        recovered = _translate_one(text, deepseek_client)
+        if recovered:
+            parsed[i] = recovered
+            logger.info(
+                "translation item %d/%d recovered via single-item retry",
+                i + 1, len(texts),
+            )
+
     return parsed
 
 
 def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment]:
     """Batch-translate English segments to Chinese via DeepSeek.
 
-    Uses _build_translation_batches for a single-pass packing that guarantees:
-    - No cross-speaker content per batch item
-    - Each item ≤ MAX_CHARS_PER_ITEM chars (output always < 4096 tokens)
-    - No mid-segment splits
-    Translation is stored on the first segment of each batch item.
+    Each segment is translated individually (1:1) then packed into API batches
+    of up to _BATCH_SIZE items.
     """
     if not segments:
         return segments
 
     batch_items = _build_translation_batches(segments)
-    texts = [" ".join(s.text for s in item) for item in batch_items]
+    texts = [item[0].text for item in batch_items]
 
     translation_texts: list[str] = []
     for start in range(0, len(texts), _BATCH_SIZE):
@@ -155,10 +158,10 @@ def translate_segments(segments: list[Segment], deepseek_client) -> list[Segment
 
     result: list[Segment] = []
     for item, translation_text in zip(batch_items, translation_texts):
-        for i, seg in enumerate(item):
-            result.append(Segment(
-                start=seg.start, end=seg.end, text=seg.text,
-                translation=translation_text if i == 0 else "",
-                speaker_id=seg.speaker_id, speaker_name=seg.speaker_name,
-            ))
+        seg = item[0]
+        result.append(Segment(
+            start=seg.start, end=seg.end, text=seg.text,
+            translation=translation_text,
+            speaker_id=seg.speaker_id, speaker_name=seg.speaker_name,
+        ))
     return result

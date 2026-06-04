@@ -80,11 +80,16 @@ def release_pipeline() -> None:
 def diarize_audio(
     audio_path: Path,
     *,
-    max_speakers: int = 6,
-    min_speakers: int = 1,
-    clustering_threshold: float = 0.65,
-    clustering_min_cluster_size: int = 6,
+    clustering_threshold: float = 0.70,
+    clustering_min_cluster_size: int = 8,
 ) -> list[SpeakerTurn]:
+    """Run pyannote speaker diarization.
+
+    No max_speakers / min_speakers passed to pyannote: those constraints trigger
+    K-Means forced re-clustering and distort embedding distances when saturated.
+    Speaker count is controlled by clustering_threshold + min_cluster_size, and
+    phantom over-segmentation is corrected downstream by speaker_merge.
+    """
     pipeline = _load_pipeline()
     pipeline.instantiate({
         "segmentation": {"min_duration_off": 0.0},
@@ -99,9 +104,8 @@ def diarize_audio(
     waveform = torch.from_numpy(audio).unsqueeze(0)  # [1, samples]
     log.debug("running pyannote on %s (%d samples)", audio_path.name, len(audio))
     log.info(
-        "diarization params: min_speakers=%d max_speakers=%d "
-        "clustering_threshold=%.4f clustering_min_cluster_size=%d",
-        min_speakers, max_speakers, clustering_threshold, clustering_min_cluster_size,
+        "diarization params: clustering_threshold=%.4f clustering_min_cluster_size=%d",
+        clustering_threshold, clustering_min_cluster_size,
     )
 
     _last_pct: list[int] = [-1]
@@ -115,8 +119,6 @@ def diarize_audio(
 
     diarization = pipeline(
         {"waveform": waveform, "sample_rate": sr},
-        min_speakers=min_speakers,
-        max_speakers=max_speakers,
         hook=_progress_hook,
     )
 

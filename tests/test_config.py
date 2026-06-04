@@ -272,7 +272,6 @@ def test_transcribe_config_default_backend(tmp_path):
     )
     assert cfg.transcribe.backend == "whisper_cpp"
     assert cfg.transcribe.diarization is True
-    assert cfg.transcribe.max_speakers == 6
 
 
 def test_transcribe_config_backend_env_override(tmp_path):

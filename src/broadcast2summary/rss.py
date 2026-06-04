@@ -20,6 +20,8 @@ class Episode:
     feed_name: str = ""    # filled by caller
     wiki_node_token: str | None = None
     language: str = "zh"   # "zh" or "en"; injected from FeedConfig.language
+    # per-feed pyannote clustering threshold override (edge case feeds only)
+    clustering_threshold_override: float | None = None
     # v0.5 RSS rich metadata
     shownotes: str = ""
     subtitle: str = ""
@@ -38,6 +40,9 @@ def attach_feed_config(ep: Episode, feed) -> Episode:
         feed_name=getattr(feed, "name", ep.feed_name),
         wiki_node_token=getattr(feed, "wiki_node_token", ep.wiki_node_token),
         language=getattr(feed, "language", ep.language),
+        clustering_threshold_override=getattr(
+            feed, "clustering_threshold", ep.clustering_threshold_override
+        ),
     )
 
 

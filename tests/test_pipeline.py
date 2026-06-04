@@ -343,7 +343,7 @@ def test_diarization_enabled_calls_align_speakers(tmp_path: Path, fixtures_dir, 
 
     monkeypatch.setattr("broadcast2summary.pipeline._assert_memory_available", lambda *a, **k: None)
 
-    def fake_diarize(audio_path, max_speakers=6, min_speakers=1, clustering_threshold=0.65, clustering_min_cluster_size=6):
+    def fake_diarize(audio_path, clustering_threshold=0.70, clustering_min_cluster_size=8):
         return [SpeakerTurn(speaker_id="SPEAKER_00", start=0.0, end=10.0)]
 
     def fake_align(segments, turns):
@@ -814,7 +814,6 @@ def test_pipeline_logs_episode_start_and_stages(tmp_path: Path, fixtures_dir, ca
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
         l3_enabled=False,
         diarization_enabled=False,
-        max_speakers=2,
     )
 
     ep = Episode(
@@ -897,7 +896,7 @@ def test_pipeline_downloads_cover_on_transcript_cache_hit(tmp_path, fixtures_dir
         failed_dir=tmp_path / "failed",
         im_target=None, lark_folder_token=None, wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        l3_enabled=False, diarization_enabled=False,
     )
     ep = Episode(
         guid=guid, title="T", pub_date="2026-05-26T00:00:00Z",
@@ -930,7 +929,7 @@ def test_cover_download_failure_does_not_fail_episode(tmp_path, fixtures_dir, ca
         failed_dir=tmp_path / "failed",
         im_target=None, lark_folder_token=None, wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        l3_enabled=False, diarization_enabled=False,
     )
     ep = Episode(
         guid="cov-001", title="T", pub_date="2026-05-26T00:00:00Z",
@@ -973,7 +972,7 @@ def test_pipeline_passes_shownotes_to_summarize(tmp_path, fixtures_dir, monkeypa
         failed_dir=tmp_path / "failed",
         im_target=None, lark_folder_token=None, wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        l3_enabled=False, diarization_enabled=False,
     )
     ep = Episode(
         guid="p-001", title="T", pub_date="2026-05-26T00:00:00Z",
@@ -1008,7 +1007,7 @@ def test_pipeline_writes_frontmatter_and_subtitle_in_markdown(tmp_path, fixtures
         failed_dir=tmp_path / "failed",
         im_target=None, lark_folder_token=None, wiki_root=None,
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        l3_enabled=False, diarization_enabled=False,
     )
     ep = Episode(
         guid="md-001", title="T", pub_date="2026-05-26T00:00:00Z",
@@ -1061,7 +1060,7 @@ def test_pipeline_calls_push_wiki_tags_when_wiki_push_succeeds(tmp_path, fixture
         failed_dir=tmp_path / "failed",
         im_target=None, lark_folder_token="ft", wiki_root="wr",
         download_fn=lambda url, dst: dst.write_bytes(b"x" * 200_000),
-        l3_enabled=False, diarization_enabled=False, max_speakers=2,
+        l3_enabled=False, diarization_enabled=False,
         lark=FakeLark(),
     )
     ep = Episode(

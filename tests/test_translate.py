@@ -53,6 +53,20 @@ def test_parse_numbered_chinese_period_separator():
 # translate_segments integration tests
 # ---------------------------------------------------------------------------
 
+def test_translate_segments_assigns_translation_to_every_segment():
+    class FakeDeepSeek:
+        def complete(self, prompt, *, temperature):
+            return "1. 译A\n2. 译B"
+
+    segs = [
+        Segment(start=0.0, end=1.0, text="A", speaker_id="SPEAKER_00"),
+        Segment(start=1.0, end=2.0, text="B", speaker_id="SPEAKER_00"),
+    ]
+    result = translate_segments(segs, FakeDeepSeek())
+    assert result[0].translation == "译A"
+    assert result[1].translation == "译B"
+
+
 def test_translate_segments_returns_translation_field(monkeypatch):
     """translate_segments groups by speaker; first segment of each group gets translation."""
 
@@ -278,36 +292,54 @@ def test_translate_batch_gives_up_after_max_retries():
     class AlwaysTruncatingDeepSeek:
         def complete(self, prompt, *, temperature):
             call_count["n"] += 1
-            return "1. 译一"  # always only returns first item
+            if "只输出译文" in prompt:
+                return ""
+            return "1. 译一"  # batch calls always only return first item
 
     result = _translate_batch(["a", "b", "c"], AlwaysTruncatingDeepSeek())
 
-    assert call_count["n"] == 3, "Should retry _BATCH_RETRIES=2 times, then give up"
-    assert result[0] == "译一"   # first item always present
-    assert result[1] == ""       # missing items are empty strings
+    assert call_count["n"] >= 3, "Should retry batch then single-item retries"
+    assert result[0] == "译一"
+    assert result[1] == ""
+    assert result[2] == ""
 
 
 # ---------------------------------------------------------------------------
 # Fix: _flatten_groups_to_chunks — hard-bound input size per item
 # ---------------------------------------------------------------------------
 
-def test_build_batches_respects_char_limit():
-    """Each batch item's text must be ≤ MAX_CHARS_PER_ITEM chars."""
-    from broadcast2summary.translate import _build_translation_batches, MAX_CHARS_PER_ITEM
+def test_parse_numbered_line_order_fallback_when_indices_missing():
+    raw = "译文一\n译文二\n译文三"
+    assert _parse_numbered(raw, 3) == ["译文一", "译文二", "译文三"]
 
-    # Same speaker, many segments — together they exceed the limit
+
+def test_build_batches_one_segment_per_item():
+    """Each segment must be its own batch item (no merging)."""
+    from broadcast2summary.translate import _build_translation_batches
+
     segs = [
         Segment(start=float(i), end=float(i + 1),
-                text="x" * 50,  # 50 chars each
+                text="x" * 50,
                 speaker_id="SPEAKER_00")
-        for i in range(20)  # 20 × 50 = 1000 chars >> MAX_CHARS_PER_ITEM
+        for i in range(5)
     ]
     batches = _build_translation_batches(segs)
-    for batch in batches:
-        batch_text = " ".join(s.text for s in batch)
-        assert len(batch_text) <= MAX_CHARS_PER_ITEM, (
-            f"Batch item exceeded MAX_CHARS_PER_ITEM={MAX_CHARS_PER_ITEM}: {len(batch_text)} chars"
-        )
+    assert len(batches) == 5
+    assert all(len(b) == 1 for b in batches)
+
+
+def test_build_batches_respects_char_limit():
+    """Oversized segments remain single-item batches (never split mid-segment)."""
+    from broadcast2summary.translate import _build_translation_batches, MAX_CHARS_PER_ITEM
+
+    oversized = Segment(
+        start=0.0, end=5.0,
+        text="x" * (MAX_CHARS_PER_ITEM + 100),
+        speaker_id="SPEAKER_00",
+    )
+    batches = _build_translation_batches([oversized])
+    assert len(batches) == 1
+    assert batches[0][0] is oversized
 
 
 def test_build_batches_never_crosses_speaker_boundary():
