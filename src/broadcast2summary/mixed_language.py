@@ -75,6 +75,9 @@ def repetition_score(text: str) -> float:
 def looks_like_zh_mode_on_english(text: str) -> bool:
     """True when text is likely English audio decoded with language=zh."""
     stripped = text.strip()
+    # Marker check first — reliable even on short segments.
+    if any(m in stripped for m in _HALLUCINATION_MARKERS):
+        return True
     if len(stripped) < _MIN_REPAIR_CHARS:
         return False
     cjk_ratio, latin_ratio = script_ratios(stripped)
@@ -83,8 +86,6 @@ def looks_like_zh_mode_on_english(text: str) -> bool:
     if cjk_ratio < 0.50:
         return False
     if repetition_score(stripped) >= 0.28:
-        return True
-    if any(m in stripped for m in _HALLUCINATION_MARKERS):
         return True
     # Very low lexical diversity with long CJK runs.
     unique = len(set(stripped.replace(" ", "")))
@@ -187,6 +188,11 @@ def repair_mixed_language_segments(
     backend: TranscribeBackend,
 ) -> list[Segment]:
     """Re-transcribe mis-decoded English windows with language=en."""
+    suspicious = [s for s in segments if looks_like_zh_mode_on_english(s.text)]
+    logger.info(
+        "mixed-language scan: %d/%d segments look like zh-mode hallucinations",
+        len(suspicious), len(segments),
+    )
     windows = find_repair_windows(segments)
     if not windows:
         return segments

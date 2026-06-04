@@ -206,6 +206,9 @@ def _extract_keywords(transcript: str, *, top_n: int) -> list[str]:
         tokens = [t.strip() for t in jieba.cut(transcript) if len(t.strip()) >= 2]
     except Exception:
         tokens = [t for t in re.split(r"\W+", transcript) if len(t) >= 3]
+    # Drop pure-Latin tokens — they dominate in mixed-language transcripts but
+    # won't appear in Chinese summaries, causing false L3 failures.
+    tokens = [t for t in tokens if not re.match(r'^[A-Za-z0-9]+$', t)]
     tokens = [t for t in tokens if t not in STOPWORDS_ZH]
     freq: dict[str, int] = {}
     for t in tokens:

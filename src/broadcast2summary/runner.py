@@ -341,6 +341,10 @@ def cmd_backfill(feed_name: str, since: str, *, cheap: bool = False) -> int:
     state_dir.mkdir(parents=True, exist_ok=True)
     state = State(state_dir / "processed.db")
     state.init_schema()
+    configure_run_logging(
+        log_dir=cfg.paths.log_dir,
+        run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
     feed = cfg.find_feed(feed_name)
     if not feed:
         print(f"unknown feed: {feed_name}", flush=True)
@@ -508,6 +512,10 @@ def cmd_retry_failed(guid: str | None, *, cheap: bool = False) -> int:
     state_dir.mkdir(parents=True, exist_ok=True)
     state = State(state_dir / "processed.db")
     state.init_schema()
+    configure_run_logging(
+        log_dir=cfg.paths.log_dir,
+        run_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    )
     deps = _build_deps(cfg, state, state_dir, cfg.paths, cheap=_cheap_from_env(cheap))
     rows = (
         state.list_failed()
