@@ -67,5 +67,5 @@ def _build_text(
             parts.append(f"• {p}")
     if wiki_doc_url:
         parts.append("")
-        parts.append(f"详情: {wiki_doc_url}")
+        parts.append(f"[详情]({wiki_doc_url})")
     return "\n".join(parts)
