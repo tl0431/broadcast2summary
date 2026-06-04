@@ -47,7 +47,7 @@ class TranscriptionResult:
 
 
 class TranscribeBackend(Protocol):
-    def transcribe(self, audio_path: Path) -> TranscriptionResult: ...
+    def transcribe(self, audio_path: Path, *, language: str | None = None) -> TranscriptionResult: ...
 
 
 class StubBackend:
@@ -56,12 +56,50 @@ class StubBackend:
     def __init__(self, fixture_path: Path):
         self.fixture_path = fixture_path
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+    def transcribe(self, audio_path: Path, *, language: str | None = None) -> TranscriptionResult:
         data = json.loads(self.fixture_path.read_text(encoding="utf-8"))
         return TranscriptionResult(
             language=data.get("language", "zh"),
             segments=[Segment(**s) for s in data["segments"]],
         )
+
+
+def _apply_zh_postprocess(
+    segments: list[Segment],
+    *,
+    info_lang: str,
+    convert_traditional: bool,
+    language_hint: str | None,
+) -> list[Segment]:
+    """OpenCC + funasr punctuation for CJK-dominant segments only."""
+    from .mixed_language import is_cjk_dominant
+
+    zh_mode = convert_traditional and (info_lang == "zh" or language_hint == "zh")
+    if not zh_mode or not segments:
+        return segments
+
+    cc = None
+    converted: list[Segment] = []
+    for s in segments:
+        text = s.text
+        if is_cjk_dominant(text):
+            if cc is None:
+                from opencc import OpenCC
+                cc = OpenCC("t2s")
+            text = cc.convert(text)
+        converted.append(Segment(
+            start=s.start, end=s.end, text=text,
+            translation=s.translation,
+            speaker_id=s.speaker_id, speaker_name=s.speaker_name,
+        ))
+
+    from .punctuate import punctuate_segments
+    to_punct = [s for s in converted if is_cjk_dominant(s.text)]
+    if not to_punct:
+        return converted
+    punctuated = punctuate_segments(to_punct, "zh")
+    by_id = {id(s): p for s, p in zip(to_punct, punctuated)}
+    return [by_id.get(id(s), s) for s in converted]
 
 
 class FasterWhisperBackend:
@@ -96,12 +134,13 @@ class FasterWhisperBackend:
         gc.collect()
         logger.info("FasterWhisper model released from memory")
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+    def transcribe(self, audio_path: Path, *, language: str | None = None) -> TranscriptionResult:
         import sys
         pipeline = self._load()
+        whisper_lang = language if language is not None else self.language_hint
         segments_iter, info = pipeline.transcribe(
             str(audio_path),
-            language=self.language_hint,
+            language=whisper_lang,
             batch_size=self.batch_size,
             vad_filter=True,
         )
@@ -116,21 +155,14 @@ class FasterWhisperBackend:
                     flush=True,
                 )
 
-        info_lang = getattr(info, "language", None)
-        if self.convert_traditional and (info_lang == "zh" or self.language_hint == "zh"):
-            if self._cc is None:
-                from opencc import OpenCC
-                self._cc = OpenCC("t2s")
-            segs = [
-                Segment(start=s.start, end=s.end, text=self._cc.convert(s.text),
-                        translation=s.translation)
-                for s in segs
-            ]
-            # Punctuation restoration (zh only; en skipped; ImportError graceful)
-            from .punctuate import punctuate_segments
-            segs = punctuate_segments(segs, info_lang or "")
-
-        return TranscriptionResult(language=info_lang or "", segments=segs)
+        info_lang = getattr(info, "language", None) or ""
+        segs = _apply_zh_postprocess(
+            segs,
+            info_lang=info_lang,
+            convert_traditional=self.convert_traditional,
+            language_hint=language if language is not None else self.language_hint,
+        )
+        return TranscriptionResult(language=info_lang or whisper_lang or "", segments=segs)
 
 
 class WhisperCppBackend:
@@ -158,8 +190,10 @@ class WhisperCppBackend:
             self._model = Model(self.model_size, n_threads=self.n_threads)
         return self._model
 
-    def _resolve_language(self, model, audio_path: Path) -> tuple[str, str]:
+    def _resolve_language(self, model, audio_path: Path, *, override: str | None) -> tuple[str, str]:
         """Return (transcribe_language, info_language) for whisper.cpp."""
+        if override:
+            return override, override
         if self.language_hint:
             return self.language_hint, self.language_hint
         audio_str = str(audio_path)
@@ -184,36 +218,53 @@ class WhisperCppBackend:
         gc.collect()
         logger.info("WhisperCpp model released from memory")
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+    def transcribe(self, audio_path: Path, *, language: str | None = None) -> TranscriptionResult:
         model = self._load()
-        transcribe_lang, info_lang = self._resolve_language(model, audio_path)
+        transcribe_lang, info_lang = self._resolve_language(
+            model, audio_path, override=language,
+        )
         raw_segs = model.transcribe(str(audio_path), language=transcribe_lang)
         segs = [
             Segment(start=s.t0 / 100.0, end=s.t1 / 100.0, text=s.text.strip())
             for s in raw_segs
         ]
-        if self.convert_traditional and (info_lang == "zh" or self.language_hint == "zh"):
-            if self._cc is None:
-                from opencc import OpenCC
-
-                self._cc = OpenCC("t2s")
-            segs = [
-                Segment(
-                    start=s.start,
-                    end=s.end,
-                    text=self._cc.convert(s.text),
-                    translation=s.translation,
-                )
-                for s in segs
-            ]
-            from .punctuate import punctuate_segments
-
-            segs = punctuate_segments(segs, info_lang or "")
+        segs = _apply_zh_postprocess(
+            segs,
+            info_lang=info_lang,
+            convert_traditional=self.convert_traditional,
+            language_hint=language if language is not None else self.language_hint,
+        )
         return TranscriptionResult(language=info_lang or "", segments=segs)
 
 
-def transcribe_audio(audio_path: Path, *, backend: TranscribeBackend) -> TranscriptionResult:
-    return backend.transcribe(audio_path)
+def resolve_whisper_language(primary_language: str) -> str | None:
+    """Map feed/episode primary language to Whisper language argument."""
+    lang = (primary_language or "zh").lower()
+    if lang == "mixed":
+        return None
+    if lang in ("zh", "en"):
+        return lang
+    return None
+
+
+def transcribe_audio(
+    audio_path: Path,
+    *,
+    backend: TranscribeBackend,
+    primary_language: str = "zh",
+) -> TranscriptionResult:
+    """Transcribe audio; repair English sections mis-decoded under zh-primary mode."""
+    whisper_lang = resolve_whisper_language(primary_language)
+    result = backend.transcribe(audio_path, language=whisper_lang)
+
+    primary = (primary_language or "zh").lower()
+    if primary in ("zh", "mixed"):
+        from .mixed_language import repair_mixed_language_segments
+        segments = repair_mixed_language_segments(audio_path, result.segments, backend)
+        if segments is not result.segments:
+            result = TranscriptionResult(language=result.language, segments=segments)
+
+    return result
 
 
 def format_segment_line_for_summary(seg: Segment) -> str:

@@ -411,7 +411,7 @@ def test_diarization_runs_before_transcription(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr(
         "broadcast2summary.pipeline.transcribe_audio",
-        lambda path, backend: call_order.append("transcribe") or __import__(
+        lambda path, backend, primary_language="zh": call_order.append("transcribe") or __import__(
             "broadcast2summary.transcribe", fromlist=["TranscriptionResult"]
         ).TranscriptionResult(language="zh", segments=[]),
     )

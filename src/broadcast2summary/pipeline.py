@@ -135,7 +135,11 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
         # ---- transcribe ----
         try:
             logger.info("transcribing: [%s]", ep.guid)
-            transcription = transcribe_audio(audio_path, backend=deps.transcribe_backend)
+            transcription = transcribe_audio(
+                audio_path,
+                backend=deps.transcribe_backend,
+                primary_language=ep.language,
+            )
             _save_transcript(transcription, transcript_cache)
             logger.info("transcript cached for %s (%d chars)", ep.guid,
                         len(transcription.full_text()))

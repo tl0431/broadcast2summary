@@ -361,13 +361,16 @@ def _already_processed(state: State, episodes) -> set[str]:
 
 
 def _make_transcribe_backend(cfg: AppConfig, *, cheap: bool):
+    hint = cfg.defaults.language_hint if cfg.defaults.language_hint != "mixed" else None
     if cfg.transcribe.backend == "whisper_cpp":
         return WhisperCppBackend(
             cheap=cheap,
+            language_hint=hint,
             convert_traditional=cfg.transcribe.convert_traditional,
         )
     return FasterWhisperBackend(
         cheap=cheap,
+        language_hint=hint,
         batch_size=cfg.transcribe.batch_size,
         convert_traditional=cfg.transcribe.convert_traditional,
     )

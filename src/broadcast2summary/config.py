@@ -7,7 +7,7 @@ import yaml
 
 
 Source = Literal["xiaoyuzhou", "apple", "generic"]
-Language = Literal["zh", "en"]
+Language = Literal["zh", "en", "mixed"]
 
 
 @dataclass(frozen=True)

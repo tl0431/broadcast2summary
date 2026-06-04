@@ -19,7 +19,7 @@ class Episode:
     duration_seconds: int  # 0 if unknown
     feed_name: str = ""    # filled by caller
     wiki_node_token: str | None = None
-    language: str = "zh"   # "zh" or "en"; injected from FeedConfig.language
+    language: str = "zh"   # "zh", "en", or "mixed"; injected from FeedConfig.language
     # per-feed pyannote clustering threshold override (edge case feeds only)
     clustering_threshold_override: float | None = None
     # v0.5 RSS rich metadata
