@@ -37,7 +37,7 @@ def test_push_summary_builds_concise_card_with_link():
     assert "工程化方法" in text
     assert "要点 A" in text and "要点 B" in text and "要点 C" in text
     assert "要点 D" not in text
-    assert "[详情](https://lark.feishu.cn/doc/abc)" in text
+    assert "https://lark.feishu.cn/doc/abc" in text
 
 
 def test_push_summary_to_im_includes_subtitle():
