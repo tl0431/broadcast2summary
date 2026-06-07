@@ -121,14 +121,15 @@ def _build_create_args(
 ) -> list[str]:
     parent = (wiki_node_token or folder_token or "").strip()
     if use_v2:
+        # v2 OpenAPI requires user identity to mount under a wiki node;
+        # bot-created docs land in the bot's own drive and never appear in wiki.
         args = [
+            "--as", "user",
             "docs", "+create",
             "--api-version", "v2",
             "--doc-format", "markdown",
             "--content", markdown_body,
         ]
-        if not wiki_node_token:
-            args[:0] = ["--as", "user"]
         if parent:
             args.extend(["--parent-token", parent])
         return args

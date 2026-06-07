@@ -50,6 +50,38 @@ def test_push_summary_uses_docs_create_v2_with_parent_token():
     assert args[md_idx + 1] == body
 
 
+def test_push_summary_v2_with_wiki_node_token_uses_user_identity():
+    """v2 OpenAPI requires user identity to mount under a wiki node;
+    bot-created docs land in the bot's own drive and never appear in wiki."""
+    fake = FakeLark(returns=[
+        json.dumps({
+            "ok": True,
+            "data": {
+                "document": {
+                    "document_id": "doc_in_wiki",
+                    "url": "https://lark.feishu.cn/docx/doc_in_wiki",
+                },
+            },
+        }),
+    ])
+    result = push_summary_to_wiki(
+        lark=fake,
+        folder_token=None,
+        title="2026-06-07 All-In",
+        markdown_body="# Body",
+        wiki_node_token="JVbdwCsj7i2XVnkYcc2cjD8Gnjd",
+    )
+    assert result.doc_token == "doc_in_wiki"
+    assert len(fake.calls) == 1
+    args = fake.calls[0]
+    assert args[:2] == ["--as", "user"], (
+        f"v2 + wiki_node must use --as user, got: {args[:2]}"
+    )
+    assert "--parent-token" in args
+    pt_idx = args.index("--parent-token")
+    assert args[pt_idx + 1] == "JVbdwCsj7i2XVnkYcc2cjD8Gnjd"
+
+
 _SAMPLE_MD_WITH_FM = """\
 ---
 link: https://example.com/ep
