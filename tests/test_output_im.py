@@ -173,3 +173,96 @@ def test_push_summary_continues_when_cover_upload_fails(tmp_path):
     )
     assert len(lark.calls) == 2
     assert lark.calls[1][0][1] == "+messages-send"
+
+
+# ── P1: _upload_cover_image new tests ────────────────────────────────────────
+
+def test_upload_cover_image_falls_back_to_url_when_local_too_small(tmp_path):
+    """Local file exists but is < 1000 B — should fall back to image_url."""
+    from broadcast2summary.lark_client import LarkCliError  # noqa: F401
+
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"x" * 100)  # 100 B < _MIN_COVER_BYTES=1000
+    lark = FakeLark(image_key="img_from_url")
+    key = _upload_cover_image(
+        lark, cover_path=cover, image_url="https://cdn.example.com/cover.jpg",
+    )
+    assert key == "img_from_url"
+    args, _ = lark.calls[0]
+    # Must have used URL branch, not local file
+    assert args[args.index("--file") + 1] == "https://cdn.example.com/cover.jpg"
+
+
+def test_upload_cover_image_raises_when_payload_not_ok():
+    """FakeLark returns {"ok": false} → _upload_cover_image should raise LarkCliError."""
+    from broadcast2summary.lark_client import LarkCliError
+    import pytest
+
+    class FakeLarkNotOk:
+        calls: list = []
+
+        def run(self, args, **kwargs):
+            self.calls.append((args, kwargs))
+            return json.dumps({"ok": False, "msg": "quota exceeded"})
+
+    lark = FakeLarkNotOk()
+    with pytest.raises(LarkCliError, match="cover upload failed"):
+        _upload_cover_image(lark, cover_path=None, image_url="https://cdn.example.com/cover.jpg")
+
+
+def test_upload_cover_image_raises_when_no_image_key():
+    """FakeLark returns ok=true but data has no image_key → should raise LarkCliError."""
+    from broadcast2summary.lark_client import LarkCliError
+    import pytest
+
+    class FakeLarkNoKey:
+        def run(self, args, **kwargs):
+            return json.dumps({"ok": True, "data": {}})
+
+    lark = FakeLarkNoKey()
+    with pytest.raises(LarkCliError, match="no image_key"):
+        _upload_cover_image(lark, cover_path=None, image_url="https://cdn.example.com/cover.jpg")
+
+
+def test_upload_cover_image_raises_on_invalid_json():
+    """lark-cli returns non-JSON text → should raise LarkCliError, not crash the pipeline."""
+    from broadcast2summary.lark_client import LarkCliError
+    import pytest
+
+    class FakeLarkBadJson:
+        def run(self, args, **kwargs):
+            return "Error: token expired\nPlease login again"
+
+    lark = FakeLarkBadJson()
+    with pytest.raises(LarkCliError):
+        _upload_cover_image(lark, cover_path=None, image_url="https://cdn.example.com/cover.jpg")
+
+
+# ── P2: _truncate tests ───────────────────────────────────────────────────────
+
+def test_truncate_respects_limit():
+    from broadcast2summary.output_im import _truncate
+    for limit in (5, 10, 20, 100):
+        long_text = "あ" * (limit * 2)
+        result = _truncate(long_text, limit)
+        assert len(result) <= limit, f"_truncate(text, {limit}) returned len={len(result)}"
+
+
+# ── P2: subtitle angle-bracket stripping ─────────────────────────────────────
+
+def test_build_interactive_card_strips_angle_brackets_in_subtitle():
+    """subtitle containing HTML tags must not appear raw in card JSON."""
+    card = json.loads(_build_interactive_card(
+        show_name="Show",
+        episode_title="Ep",
+        summary={"tldr": "x", "key_points": []},
+        wiki_doc_url=None,
+        subtitle="breaking </font> news <b>bold</b>",
+        img_key=None,
+    ))
+    # The subtitle text itself must not contain < or > after stripping
+    title_content = card["elements"][0]["text"]["content"]
+    assert "<" not in title_content.split("\n", 1)[1] or title_content.split("\n", 1)[1].startswith("<font")
+    # The raw subtitle angle-bracket sequences must be gone from the subtitle portion
+    assert "</font> news" not in title_content
+    assert "<b>" not in title_content

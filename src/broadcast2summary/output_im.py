@@ -97,7 +97,7 @@ def _truncate(text: str, limit: int) -> str:
     text = text.strip()
     if len(text) <= limit:
         return text
-    return text[:limit] + "…"
+    return text[:limit - 1] + "…"
 
 
 def _build_interactive_card(
@@ -121,7 +121,8 @@ def _build_interactive_card(
 
     title_md = f"**{episode_title}**"
     if subtitle:
-        title_md += f"\n<font color='grey'>{_truncate(subtitle, 100)}</font>"
+        clean_subtitle = subtitle.replace("<", "").replace(">", "")
+        title_md += f"\n<font color='grey'>{_truncate(clean_subtitle, 100)}</font>"
     elements.append({"tag": "div", "text": {"tag": "lark_md", "content": title_md}})
     elements.append({"tag": "hr"})
 
@@ -165,6 +166,9 @@ def _upload_cover_image(
     image_url: str,
 ) -> str | None:
     """Upload RSS cover to Feishu; return image_key or None."""
+    raw: str | None = None
+
+    # 1. Prefer a large-enough local file
     if cover_path and cover_path.is_file() and cover_path.stat().st_size >= _MIN_COVER_BYTES:
         raw = lark.run(
             [
@@ -175,6 +179,7 @@ def _upload_cover_image(
             ],
             cwd=str(cover_path.parent),
         )
+    # 2. Fall back to remote URL (covers: no local file, or local file too small)
     elif image_url:
         raw = lark.run([
             "im", "images", "create",
@@ -182,10 +187,19 @@ def _upload_cover_image(
             "--data", '{"image_type":"message"}',
             "--file", image_url,
         ])
-    else:
+
+    # 3. Nothing usable
+    if raw is None:
         return None
 
-    payload = json.loads(raw)
-    if not payload.get("ok", True):
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise LarkCliError(f"cover upload returned non-JSON: {raw!r}") from exc
+
+    if not payload.get("ok"):
         raise LarkCliError(f"cover upload failed: {payload}")
-    return (payload.get("data") or {}).get("image_key")
+    key = (payload.get("data") or {}).get("image_key")
+    if not key:
+        raise LarkCliError(f"cover upload returned no image_key: {payload}")
+    return key
