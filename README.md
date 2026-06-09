@@ -19,7 +19,7 @@ A local-first podcast pipeline that subscribes to feeds, transcribes episodes on
 - **Outputs**:
   - Local Markdown archive (`~/Knowledge/broadcast/archive/`)
   - Lark (Feishu) wiki knowledge base — creates docs directly under per-feed wiki nodes
-  - Lark IM push notification with wiki link
+  - Lark IM push — interactive card (cover + summary + Wiki button)
 - **Download**: automatic retry (3 attempts, exponential backoff) + resumable downloads across runs
 - **Scheduling**: macOS launchd (daily at 23:00, runs `run` followed by `retry-failed` so previous-day failures auto-recover; `caffeinate` prevents sleep during runs)
 - **Cheap mode**: swap to smaller models for fast iteration
@@ -190,6 +190,23 @@ Enable:
 launchctl unload ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
 launchctl load   ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
 ```
+
+---
+
+## Lark IM notification format
+
+After a successful run, if `LARK_IM_TARGET_OPEN_ID` is set, the bot sends an **interactive card** (not a Markdown post message).
+
+| Section | Content |
+|---------|---------|
+| Header | `📻 {feed name}` (blue title bar) |
+| Cover | RSS artwork banner when available (local `.assets/` file or feed `image_url`) |
+| Body | Episode title, optional subtitle, TL;DR (~180 chars), first 3 key points |
+| Action | **查看 Wiki 详情** primary button → opens the episode Wiki doc URL |
+
+**Cover priority:** locally downloaded cover (`archive/{show}/.assets/{guid}.jpg`) first; falls back to RSS `image_url`. If upload fails, the card is still sent without the image.
+
+**Requirements:** bot identity needs IM send + `im.images.create` scopes. Wiki docs use `docs +create --api-version v2` (lark-cli ≥ 1.0.47).
 
 ---
 

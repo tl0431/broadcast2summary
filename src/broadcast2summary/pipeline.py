@@ -338,6 +338,8 @@ def process_episode(ep: Episode, *, deps: PipelineDeps) -> EpisodeResult:
                 show_name=ep.feed_name, episode_title=ep.title,
                 summary=summary.parsed, wiki_doc_url=wiki_url,
                 subtitle=ep.subtitle,
+                cover_path=cover_path,
+                image_url=ep.image_url,
             )
         elif deps.lark:
             logger.debug("IM push skipped for %s — no im_target configured", ep.guid)

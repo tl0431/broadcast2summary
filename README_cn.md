@@ -19,7 +19,7 @@
 - **输出渠道**：
   - 本地 Markdown 归档（`~/Knowledge/broadcast/archive/`）
   - 飞书知识库——按节目节点直接创建子文档
-  - 飞书 IM 推送（附知识库链接）
+  - 飞书 IM 推送——交互卡片（封面 + 摘要 + Wiki 按钮）
 - **下载**：自动重试（最多 3 次，指数退避）+ 跨次运行断点续传
 - **定时任务**：macOS launchd（每天 23:00 先跑 `run`、再自动 `retry-failed` 重试昨晚失败集；`caffeinate` 防止睡眠中断下载）
 - **低成本模式**：`--cheap` 切换到小模型，适合开发调试
@@ -191,6 +191,23 @@ launchd 任务通过 `caffeinate -dims` 运行，防止 macOS 在长时间 diari
 launchctl unload ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
 launchctl load   ~/Library/LaunchAgents/com.tl.broadcast2summary.plist
 ```
+
+---
+
+## 飞书 IM 推送格式
+
+每集处理成功后，若配置了 `LARK_IM_TARGET_OPEN_ID`，bot 会发送一条 **interactive 交互卡片**（非 Markdown 富文本）。
+
+| 区域 | 内容 |
+|------|------|
+| 顶栏 | `📻 {节目名}`（蓝色标题栏） |
+| 封面 | RSS 封面图横幅（若已下载到 `.assets/` 或 feed 提供 `image_url`） |
+| 正文 | 单集标题、副标题（如有）、TL;DR（约 180 字）、前 3 条要点 |
+| 按钮 | **查看 Wiki 详情** → 跳转当集 Wiki 文档 URL |
+
+**封面来源：** pipeline 下载的本地封面优先（`archive/{节目}/.assets/{guid}.jpg`）；无本地文件时尝试 RSS `image_url`。封面上传失败时仍发送卡片，只是不含图片。
+
+**依赖：** `lark-cli` bot 身份需具备 IM 发消息与 `im.images.create` 上传权限；Wiki 文档由 `docs +create --api-version v2` 创建（需 lark-cli ≥ 1.0.47）。
 
 ---
 

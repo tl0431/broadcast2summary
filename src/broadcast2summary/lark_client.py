@@ -12,8 +12,14 @@ class LarkClient:
     def __init__(self, executable: str = "lark-cli"):
         self.executable = executable
 
-    def run(self, args: list[str], *, input_text: str | None = None,
-            timeout: int = 120) -> str:
+    def run(
+        self,
+        args: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: int = 120,
+        cwd: str | None = None,
+    ) -> str:
         cmd = [self.executable, *args]
         result = subprocess.run(
             cmd,
@@ -21,6 +27,7 @@ class LarkClient:
             capture_output=True,
             text=True,
             timeout=timeout,
+            cwd=cwd,
         )
         if result.returncode != 0:
             raise LarkCliError(
