@@ -290,7 +290,7 @@ class ClaudeClient:
         # before L1 schema checks (see json_repair.repair_unescaped_quotes_in_json_strings).
         with self._client.messages.stream(
             model=self.model,
-            max_tokens=4000,
+            max_tokens=8000,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
         ) as stream:

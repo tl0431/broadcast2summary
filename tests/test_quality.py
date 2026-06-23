@@ -52,6 +52,17 @@ def test_l1_fail_too_few_chapters():
     assert r.level == QualityLevel.L1
 
 
+def test_l1_ratio_skipped_for_very_long_transcript():
+    # Regression: 271-min Acquired episode (~750K char transcript) failed L1 because
+    # the saturated summary length gave ratio 0.003 < 0.01 lower bound.  Ratio check
+    # must be skipped above the 60K map-reduce threshold.
+    long_transcript = TRANSCRIPT[:50] * 20_000  # well over 60K chars
+    assert len(long_transcript) > 60_000
+    r = evaluate(json.dumps(GOOD, ensure_ascii=False),
+                 transcript=long_transcript, l3_enabled=False)
+    assert r.passed is True, r.reason
+
+
 def test_l2_fail_refusal_phrase():
     bad = {**GOOD, "tldr": "抱歉,作为AI助手,我无法处理这一内容。" * 5}
     r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT)
