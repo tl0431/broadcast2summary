@@ -116,9 +116,13 @@ def _l1_checks(parsed: dict, transcript: str) -> str | None:
         return "chapters must have >= 3 entries"
     summary_chars = len(_flatten_text(parsed))
     transcript_chars = max(1, len(transcript))
-    ratio = summary_chars / transcript_chars
-    if not (0.01 <= ratio <= 0.20):
-        return f"summary/transcript ratio out of range: {ratio:.3f}"
+    # Skip ratio check for very long transcripts (map-reduce territory):
+    # summary length saturates due to per-field L1 limits, making the lower
+    # bound unreachable.  Upper bound still useful for short transcripts.
+    if transcript_chars <= 60_000:
+        ratio = summary_chars / transcript_chars
+        if not (0.01 <= ratio <= 0.20):
+            return f"summary/transcript ratio out of range: {ratio:.3f}"
     return None
 
 
