@@ -25,7 +25,14 @@ class QualityResult:
 
 
 REFUSAL_RE = re.compile(
-    r"(无法处理|内容不清晰|作为\s*AI|抱歉[,，]\s*我|sorry,\s*I|cannot help|不便)",
+    # Match genuine assistant refusals, not topical mentions of "AI".
+    # "作为AI" alone false-positives on legitimate content like "手机作为AI终端"
+    # in AI-themed episodes, so require it to be followed by a refusal verb.
+    r"(无法处理|内容不清晰"
+    r"|作为\s*AI[^。!?\n]{0,12}(?:无法|不能|不会|没办法|抱歉|助手)"
+    r"|抱歉[,，]\s*我(?:无法|不能|没办法)"
+    r"|sorry,\s*I\s*(?:can'?t|cannot)"
+    r"|cannot help|不便(?:评论|回答|透露|提供))",
     re.IGNORECASE,
 )
 # Only explicit LLM placeholders — not arbitrary [bracketed] English in quotes/citations.
@@ -84,7 +91,10 @@ def evaluate(
     if l2_err:
         return QualityResult(False, QualityLevel.L2, l2_err, parsed)
 
-    # ---------- L3 ----------
+    # ---------- L3 (advisory only) ----------
+    # Keyword coverage is a soft signal: spoken-filler-dominated extraction
+    # produces false positives on well-written summaries that paraphrase rather
+    # than echo the transcript verbatim.  We log it but never fail on it.
     if l3_enabled:
         corrections = parsed.get("asr_corrections") or {}
         corrected_transcript = transcript
@@ -92,7 +102,8 @@ def evaluate(
             corrected_transcript = corrected_transcript.replace(wrong, right)
         l3_err = _l3_check(flat, corrected_transcript)
         if l3_err:
-            return QualityResult(False, QualityLevel.L3, l3_err, parsed)
+            logger.warning("L3 keyword coverage advisory (not failing): %s", l3_err)
+            return QualityResult(True, QualityLevel.L3, f"ok (L3 warning: {l3_err})", parsed)
         return QualityResult(True, QualityLevel.L3, "ok", parsed)
     return QualityResult(True, QualityLevel.L2, "ok (l3 disabled)", parsed)
 

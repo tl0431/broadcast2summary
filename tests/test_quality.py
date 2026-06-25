@@ -104,7 +104,10 @@ def test_l2_still_fails_explicit_placeholder_bracket():
     assert r.level == QualityLevel.L2
 
 
-def test_l3_fail_low_keyword_coverage():
+def test_l3_low_keyword_coverage_warns_but_passes():
+    # L3 keyword coverage is advisory only (warning), never a hard failure:
+    # spoken-filler-dominated keyword extraction produced false positives on
+    # well-written summaries (e.g. 闽南往事 episode 2026-06-24).
     bad = {**GOOD, "tldr": "春天来临万物复苏百花盛开。夏日炎炎骄阳似火。秋风吹过落叶纷飞。冬天降临白雪皑皑。四季轮回自然更替。这是一个完整的季节循环描述。每个季节都有独特的特征和美景呈现。",
            "key_points": ["春天万物复苏百花盛开绿意盎然美丽景象令人陶醉",
                           "夏日炎炎骄阳似火热浪滚滚令人难以忍受炎热",
@@ -112,7 +115,7 @@ def test_l3_fail_low_keyword_coverage():
                           "冬天降临白雪皑皑银装素裹分外妖娆令人陶醉",
                           "四季轮回自然更替周而复始永不停歇循环往复"]}
     r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT)
-    assert r.passed is False
+    assert r.passed is True
     assert r.level == QualityLevel.L3
 
 
@@ -163,3 +166,32 @@ def test_l3_can_be_disabled():
                           "四季轮回自然更替周而复始永不停歇循环往复"]}
     r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT, l3_enabled=False)
     assert r.passed is True
+
+
+def test_l2_refusal_does_not_false_positive_on_ai_topic():
+    """Regression: '手机作为AI终端' is legitimate content, not a refusal."""
+    ok = {**GOOD, "tldr": "手机作为AI时代最特殊的智能终端，拥有算力、屏幕、上下文、摄像头、定位等综合数据，比PC更适合作为AI工作台。折叠屏手机通过多任务并行模式和端侧AI承载轻办公，实现从应用入口到任务入口的转变。"}
+    r = evaluate(json.dumps(ok, ensure_ascii=False), transcript=TRANSCRIPT * 5, l3_enabled=False)
+    assert r.passed is True, f"false positive: {r.reason}"
+
+
+def test_l2_refusal_still_catches_real_refusal():
+    """Real refusal phrases must still be caught."""
+    bad = {**GOOD, "tldr": "作为AI助手，我无法处理这段音频内容，建议您寻求专业人士的帮助来完成这项任务。这段对话涉及的内容我不便评论太多，也超出了我目前的能力范围，请您多多谅解我的局限性与不足。"}
+    r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT * 5, l3_enabled=False)
+    assert r.passed is False
+    assert r.level == QualityLevel.L2
+
+
+def test_l3_becomes_warning_not_failure():
+    """L3 keyword coverage should warn but NOT fail the evaluation."""
+    bad = {**GOOD, "tldr": "春天来临万物复苏百花盛开。夏日炎炎骄阳似火。秋风吹过落叶纷飞。冬天降临白雪皑皑。四季轮回自然更替。这是一个完整的季节循环描述。每个季节都有独特的特征和美景呈现。",
+           "key_points": ["春天万物复苏百花盛开绿意盎然美丽景象令人陶醉",
+                          "夏日炎炎骄阳似火热浪滚滚令人难以忍受炎热",
+                          "秋风吹过落叶纷飞金黄色彩美不胜收令人惊艳",
+                          "冬天降临白雪皑皑银装素裹分外妖娆令人陶醉",
+                          "四季轮回自然更替周而复始永不停歇循环往复"]}
+    r = evaluate(json.dumps(bad, ensure_ascii=False), transcript=TRANSCRIPT)
+    # Should pass (L3 is now warning-only) but reason should indicate the warning
+    assert r.passed is True
+    assert "keyword" in r.reason.lower()
